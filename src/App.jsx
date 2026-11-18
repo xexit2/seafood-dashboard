@@ -59,18 +59,6 @@ const Instagram = ({ className = 'w-4 h-4' }) => (
   </svg>
 );
 
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  BarChart,
-  Bar,
-  Cell,
-} from 'recharts';
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
@@ -106,20 +94,40 @@ try {
 }
 
 // ==========================================
-// 모바일 인스타그램 앱 딥링크(Deep Link) 실행 유틸리티 (업체명 검색 연동)
+// 소재지(시/도) 추출 및 모바일 인스타그램 앱 딥링크 유틸리티
 // ==========================================
-function openInstagramSearchInApp(e, companyName) {
-  const cleanName = (companyName || '').trim();
-  if (!cleanName) return;
+function extractTopRegion(address = '') {
+  const clean = (address || '').trim();
+  if (!clean || clean === '주소 미기재' || clean === '직접 등록 거래처' || clean === 'SNS 연동 업체') {
+    return '';
+  }
+  const firstToken = clean.split(/\s+/)[0] || '';
+  return firstToken
+    .replace(/(특별시|광역시|특별자치시|특별자치도|도|시)$/, '')
+    .trim();
+}
 
-  // 인스타 앱 검색창에서 바로 붙여넣기 할 수 있도록 업체명 클립보드 복사 지원
+function buildRegionCompanyQuery(companyName = '', address = '') {
+  const name = (companyName || '').trim();
+  const topRegion = extractTopRegion(address);
+  if (!topRegion || name.includes(topRegion)) {
+    return name;
+  }
+  return `${topRegion} ${name}`.trim();
+}
+
+function openInstagramSearchInApp(e, companyName, address = '') {
+  const searchQuery = buildRegionCompanyQuery(companyName, address);
+  if (!searchQuery) return;
+
+  // 인스타 앱 검색창에서 바로 붙여넣기 할 수 있도록 '소재지+업체명' 클립보드 복사
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(cleanName).catch(() => {});
+      navigator.clipboard.writeText(searchQuery).catch(() => {});
     }
   } catch (_) {}
 
-  const tagKeyword = cleanName.replace(/\s+/g, '');
+  const tagKeyword = searchQuery.replace(/\s+/g, '');
   const webUrl = `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`;
 
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
@@ -162,8 +170,311 @@ function openInstagramSearchInApp(e, companyName) {
 }
 
 // ==========================================
-// 1. 초기 데이터 설정 (기본 업체 목록 비움 - 사용자 엑셀 업로드 전용)
+// 1. 초기 데이터 설정 (기상 · 위판 시세 · 거래처 기본값)
 // ==========================================
+const INITIAL_WEATHER_DATA = {
+  busan: {
+    id: 'busan',
+    name: '부산 · 남해동부 (공동어시장)',
+    lat: 35.09,
+    lon: 129.04,
+    zoom: 8,
+    airTemp: 14,
+    waterTemp: 16.5,
+    windSpeed: 5.4,
+    windDir: '북서풍',
+    waveHeight: 1.1,
+    status: '조업 원활',
+    statusType: 'good',
+    updatedAt: '오늘 06:00 기상청·Windy 기준',
+    summary: '연안 파고 1.1m 내외로 선망 및 연안 자망 어선 입출항이 원활하며 당일 위판 물량 공급이 안정적입니다.',
+  },
+  jeju: {
+    id: 'jeju',
+    name: '제주 · 추자 근해 (한림·서귀포)',
+    lat: 33.45,
+    lon: 126.55,
+    zoom: 8,
+    airTemp: 16,
+    waterTemp: 18.2,
+    windSpeed: 11.8,
+    windDir: '북동풍',
+    waveHeight: 2.6,
+    status: '풍랑 주의',
+    statusType: 'warning',
+    updatedAt: '오늘 06:00 기상청·Windy 기준',
+    summary: '제주 먼바다 풍속 11m/s 이상 강풍으로 소형 갈치 채낚기 어선 출항이 일부 제한되어 산지 시세 강세가 예상됩니다.',
+  },
+  tongyeong: {
+    id: 'tongyeong',
+    name: '통영 · 거제 (남해중부)',
+    lat: 34.84,
+    lon: 128.43,
+    zoom: 9,
+    airTemp: 13,
+    waterTemp: 15.8,
+    windSpeed: 6.2,
+    windDir: '서풍',
+    waveHeight: 0.9,
+    status: '조업 양호',
+    statusType: 'good',
+    updatedAt: '오늘 06:00 기상청·Windy 기준',
+    summary: '내만 해상 잔잔하여 가두리 양식장 출하 및 활어 운반차량 선적 작업에 지장이 없습니다.',
+  },
+  east: {
+    id: 'east',
+    name: '포항 · 구룡포 (동해남부)',
+    lat: 36.01,
+    lon: 129.55,
+    zoom: 8,
+    airTemp: 11,
+    waterTemp: 14.1,
+    windSpeed: 8.9,
+    windDir: '북풍',
+    waveHeight: 1.9,
+    status: '일부 주의',
+    statusType: 'caution',
+    updatedAt: '오늘 06:00 기상청·Windy 기준',
+    summary: '동해 먼바다 너울성 파도가 다소 높아 대게·오징어 근해 어선 조업 시 기상 특보 확인이 필요합니다.',
+  },
+};
+
+const INITIAL_SPECIES_DATA = {
+  대방어: {
+    name: '대방어',
+    grade: '특대 (8kg 이상)',
+    unit: '원/kg',
+    currentAvg: 24500,
+    prevDiffRate: 8.4,
+    history7d: [
+      { date: '11/12', price: 21500 },
+      { date: '11/13', price: 22000 },
+      { date: '11/14', price: 22400 },
+      { date: '11/15', price: 23100 },
+      { date: '11/16', price: 23800 },
+      { date: '11/17', price: 22600 },
+      { date: '11/18', price: 24500 },
+    ],
+    history30d: [
+      { date: '10/20', price: 18500 },
+      { date: '10/27', price: 19800 },
+      { date: '11/03', price: 21000 },
+      { date: '11/10', price: 22300 },
+      { date: '11/18', price: 24500 },
+    ],
+    markets: [
+      { market: '부산공동어시장', price: 24800, diff: 1800, volume: '1,420 kg', status: '강세' },
+      { market: '모슬포수협위판장', price: 25500, diff: 2100, volume: '980 kg', status: '급등' },
+      { market: '구룡포수협위판장', price: 23200, diff: 1100, volume: '640 kg', status: '상승' },
+    ],
+  },
+  고등어: {
+    name: '고등어',
+    grade: '선망 대 (10kg 상자)',
+    unit: '원/상자',
+    currentAvg: 38500,
+    prevDiffRate: -2.1,
+    history7d: [
+      { date: '11/12', price: 40500 },
+      { date: '11/13', price: 40000 },
+      { date: '11/14', price: 39800 },
+      { date: '11/15', price: 39200 },
+      { date: '11/16', price: 39500 },
+      { date: '11/17', price: 39300 },
+      { date: '11/18', price: 38500 },
+    ],
+    history30d: [
+      { date: '10/20', price: 42000 },
+      { date: '10/27', price: 41200 },
+      { date: '11/03', price: 40100 },
+      { date: '11/10', price: 39400 },
+      { date: '11/18', price: 38500 },
+    ],
+    markets: [
+      { market: '부산공동어시장', price: 38500, diff: -800, volume: '8,500 상자', status: '약세' },
+      { market: '제주한림수협', price: 39200, diff: -500, volume: '2,100 상자', status: '보합' },
+      { market: '삼천포수협위판장', price: 37800, diff: -1000, volume: '1,650 상자', status: '약세' },
+    ],
+  },
+  은갈치: {
+    name: '은갈치',
+    grade: '특대 (10kg/20미)',
+    unit: '원/상자',
+    currentAvg: 168000,
+    prevDiffRate: 5.6,
+    history7d: [
+      { date: '11/12', price: 154000 },
+      { date: '11/13', price: 156000 },
+      { date: '11/14', price: 158000 },
+      { date: '11/15', price: 160000 },
+      { date: '11/16', price: 162000 },
+      { date: '11/17', price: 159000 },
+      { date: '11/18', price: 168000 },
+    ],
+    history30d: [
+      { date: '10/20', price: 145000 },
+      { date: '10/27', price: 150000 },
+      { date: '11/03', price: 155000 },
+      { date: '11/10', price: 161000 },
+      { date: '11/18', price: 168000 },
+    ],
+    markets: [
+      { market: '서귀포수협위판장', price: 172000, diff: 9500, volume: '620 상자', status: '급등' },
+      { market: '한림수협위판장', price: 168000, diff: 8000, volume: '540 상자', status: '강세' },
+      { market: '여수수협위판장', price: 164000, diff: 6000, volume: '410 상자', status: '상승' },
+    ],
+  },
+  활광어: {
+    name: '활광어',
+    grade: '완도·제주 양식 (2kg급)',
+    unit: '원/kg',
+    currentAvg: 19200,
+    prevDiffRate: 1.5,
+    history7d: [
+      { date: '11/12', price: 18800 },
+      { date: '11/13', price: 18900 },
+      { date: '11/14', price: 18900 },
+      { date: '11/15', price: 19000 },
+      { date: '11/16', price: 19100 },
+      { date: '11/17', price: 18900 },
+      { date: '11/18', price: 19200 },
+    ],
+    history30d: [
+      { date: '10/20', price: 18000 },
+      { date: '10/27', price: 18400 },
+      { date: '11/03', price: 18700 },
+      { date: '11/10', price: 19000 },
+      { date: '11/18', price: 19200 },
+    ],
+    markets: [
+      { market: '완도활어위판장', price: 19200, diff: 300, volume: '3,200 kg', status: '보합' },
+      { market: '제주어류양식수협', price: 19500, diff: 400, volume: '2,800 kg', status: '상승' },
+      { market: '인천연안부두도매', price: 20500, diff: 300, volume: '1,900 kg', status: '보합' },
+    ],
+  },
+  오징어: {
+    name: '오징어',
+    grade: '생물 선동 (20미/8kg)',
+    unit: '원/상자',
+    currentAvg: 54000,
+    prevDiffRate: 3.8,
+    history7d: [
+      { date: '11/12', price: 51000 },
+      { date: '11/13', price: 51500 },
+      { date: '11/14', price: 52000 },
+      { date: '11/15', price: 52500 },
+      { date: '11/16', price: 53000 },
+      { date: '11/17', price: 52000 },
+      { date: '11/18', price: 54000 },
+    ],
+    history30d: [
+      { date: '10/20', price: 48000 },
+      { date: '10/27', price: 49500 },
+      { date: '11/03', price: 51000 },
+      { date: '11/10', price: 52500 },
+      { date: '11/18', price: 54000 },
+    ],
+    markets: [
+      { market: '주문진수협위판장', price: 54500, diff: 2000, volume: '780 상자', status: '상승' },
+      { market: '죽변수협위판장', price: 53800, diff: 1800, volume: '610 상자', status: '상승' },
+      { market: '구룡포수협위판장', price: 53500, diff: 1500, volume: '520 상자', status: '보합' },
+    ],
+  },
+};
+
+const INITIAL_PARTNERS = [];
+const INITIAL_SNS_FEEDS = [];
+
+function inferPartnerMetadata(companyName = '', address = '', idx = 0) {
+  const combined = `${companyName} ${address}`;
+  let category = '고등어';
+  let mainProduct = '선망 고등어 · 계절 활어';
+  let unitPrice = 38500;
+  let unitLabel = '원/상자';
+  let volumeUnit = '상자';
+
+  if (combined.includes('방어') || combined.includes('제주') || combined.includes('모슬포')) {
+    category = '대방어';
+    mainProduct = '산지 직송 대방어 · 모듬회';
+    unitPrice = 24500;
+    unitLabel = '원/kg';
+    volumeUnit = 'kg';
+  } else if (combined.includes('갈치') || combined.includes('서귀포')) {
+    category = '은갈치';
+    mainProduct = '제주 은갈치 · 조림용 특대';
+    unitPrice = 165000;
+    unitLabel = '원/상자';
+    volumeUnit = '상자';
+  } else if (combined.includes('광어') || combined.includes('완도') || combined.includes('활어') || combined.includes('횟집')) {
+    category = '활광어';
+    mainProduct = '완도 활광어 · 우럭 · 활어회';
+    unitPrice = 19200;
+    unitLabel = '원/kg';
+    volumeUnit = 'kg';
+  } else if (combined.includes('오징어') || combined.includes('포항') || combined.includes('동해') || combined.includes('강원')) {
+    category = '오징어';
+    mainProduct = '동해 생물 오징어 · 물회';
+    unitPrice = 54000;
+    unitLabel = '원/상자';
+    volumeUnit = '상자';
+  }
+
+  const combinedQuery = buildRegionCompanyQuery(companyName, address);
+  const tagKeyword = combinedQuery.replace(/\s+/g, '');
+
+  return {
+    snsPlatform: 'Instagram',
+    snsHandle: `#${tagKeyword}`,
+    instagramUrl: `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`,
+    blogUrl: `https://search.naver.com/search.naver?query=${encodeURIComponent(combinedQuery)}`,
+    category,
+    mainProduct,
+    searchedMenus: [],
+    aiSummary: '',
+    isSearched: false,
+    unitPrice,
+    unitLabel,
+    totalVolume: 120 + (idx % 10) * 15,
+    volumeUnit,
+    status: '활발',
+    lastOrder: '2026-11-18',
+  };
+}
+
+function parseSnsPostText(rawText = '') {
+  const text = String(rawText || '');
+  const speciesList = ['대방어', '고등어', '은갈치', '활광어', '오징어'];
+  let species = '고등어';
+  for (const sp of speciesList) {
+    if (text.includes(sp) || (sp === '활광어' && text.includes('광어')) || (sp === '은갈치' && text.includes('갈치'))) {
+      species = sp;
+      break;
+    }
+  }
+
+  const priceMatch = text.match(/(\d{1,3}(?:,\d{3})+|\d{4,6})\s*원/);
+  const unitPrice = priceMatch ? Number(priceMatch[1].replace(/,/g, '')) : 39000;
+  const isKg = text.toLowerCase().includes('kg') && !text.includes('상자');
+  const unitLabel = isKg ? '원/kg' : '원/상자';
+
+  const volMatch = text.match(/(\d+)\s*(상자|박스|kg|마리)/i);
+  const volume = volMatch ? Number(volMatch[1]) : 100;
+  const volumeUnit = volMatch && volMatch[2].toLowerCase() === 'kg' ? 'kg' : '상자';
+
+  const specMatch = text.match(/(\d+\s*kg[^,\n.]*|특대|대자|선망|산지\s*직송)/i);
+  const spec = specMatch ? specMatch[0].trim() : `${species} 산지 직송 특선`;
+
+  return {
+    species,
+    spec,
+    unitPrice,
+    unitLabel,
+    volume,
+    volumeUnit,
+    available: true,
+  };
+}
+
 function extractInstagramUsername(urlOrHandle = '') {
   if (!urlOrHandle) return '';
   const cleaned = urlOrHandle.trim();
@@ -230,410 +541,28 @@ function openInstagramInApp(e, urlOrHandle, fallbackUrl) {
 }
 
 // ==========================================
-// 1. 초기 데이터 설정 (첨부 엑셀 발주처 데이터 + 수산 시세)
-// ==========================================
-
-const INITIAL_WEATHER_DATA = {
-  busan: {
-    id: 'busan',
-    name: '부산 앞바다',
-    lat: 35.08,
-    lon: 129.12,
-    zoom: 9,
-    airTemp: 14.2,
-    waterTemp: 16.8,
-    windSpeed: 5.4,
-    windDir: '북서풍',
-    waveHeight: 0.8,
-    status: '조업 양호',
-    statusType: 'good',
-    summary: '파고가 낮고 시정이 양호하여 연안 및 근해 선망 조업에 최적입니다.',
-    updatedAt: '09:00 기상청·Windy 연동',
-  },
-  namhae: {
-    id: 'namhae',
-    name: '남해 동부',
-    lat: 34.72,
-    lon: 128.35,
-    zoom: 9,
-    airTemp: 15.1,
-    waterTemp: 17.4,
-    windSpeed: 7.8,
-    windDir: '서북서풍',
-    waveHeight: 1.4,
-    status: '조업 보통',
-    statusType: 'caution',
-    summary: '오후 들어 바람이 다소 강해지겠으니 소형 어선은 안전에 유의 바랍니다.',
-    updatedAt: '09:00 기상청·Windy 연동',
-  },
-  jeju: {
-    id: 'jeju',
-    name: '제주 해상',
-    lat: 33.38,
-    lon: 126.55,
-    zoom: 8,
-    airTemp: 16.5,
-    waterTemp: 19.2,
-    windSpeed: 12.6,
-    windDir: '북풍',
-    waveHeight: 2.7,
-    status: '풍랑주의보',
-    statusType: 'warning',
-    summary: '강풍과 높은 물결로 인해 갈치 채낚기 및 연승 어선 출항 자제가 권고됩니다.',
-    updatedAt: '09:00 기상청·Windy 연동',
-  },
-  donghae: {
-    id: 'donghae',
-    name: '동해 남부',
-    lat: 36.12,
-    lon: 129.55,
-    zoom: 9,
-    airTemp: 12.8,
-    waterTemp: 15.5,
-    windSpeed: 6.2,
-    windDir: '북동풍',
-    waveHeight: 1.1,
-    status: '조업 양호',
-    statusType: 'good',
-    summary: '방어 및 오징어 어장 형성이 양호하며 해상 기상 상태가 안정적입니다.',
-    updatedAt: '09:00 기상청·Windy 연동',
-  },
-};
-
-const INITIAL_SPECIES_DATA = {
-  대방어: {
-    name: '대방어',
-    unit: '원 / kg',
-    grade: '특대 (8kg 이상)',
-    currentAvg: 24500,
-    prevDiffRate: 8.4,
-    history7d: [
-      { date: '11/12', price: 21500, volume: 1240 },
-      { date: '11/13', price: 22000, volume: 1180 },
-      { date: '11/14', price: 21800, volume: 1320 },
-      { date: '11/15', price: 22900, volume: 1450 },
-      { date: '11/16', price: 23400, volume: 1610 },
-      { date: '11/17', price: 22600, volume: 1500 },
-      { date: '11/18', price: 24500, volume: 1820 },
-    ],
-    history30d: [
-      { date: '10/20', price: 18500, volume: 980 },
-      { date: '10/25', price: 19200, volume: 1050 },
-      { date: '10/30', price: 20100, volume: 1120 },
-      { date: '11/04', price: 20800, volume: 1210 },
-      { date: '11/09', price: 21400, volume: 1290 },
-      { date: '11/14', price: 21800, volume: 1320 },
-      { date: '11/18', price: 24500, volume: 1820 },
-    ],
-    markets: [
-      { market: '부산공동어시장', price: 24800, diff: 1800, volume: '740 kg', status: '강세' },
-      { market: '포항죽도위판장', price: 24200, diff: 1500, volume: '520 kg', status: '강세' },
-      { market: '통영수협', price: 23900, diff: 1100, volume: '340 kg', status: '상승' },
-      { market: '제주모슬포수협', price: 25100, diff: 2100, volume: '220 kg', status: '급등' },
-    ],
-  },
-  고등어: {
-    name: '고등어',
-    unit: '원 / 상자(10kg)',
-    grade: '대 (350g 이상)',
-    currentAvg: 38500,
-    prevDiffRate: -3.2,
-    history7d: [
-      { date: '11/12', price: 41000, volume: 4200 },
-      { date: '11/13', price: 40500, volume: 4500 },
-      { date: '11/14', price: 39800, volume: 4800 },
-      { date: '11/15', price: 40200, volume: 4650 },
-      { date: '11/16', price: 39500, volume: 5100 },
-      { date: '11/17', price: 39800, volume: 4950 },
-      { date: '11/18', price: 38500, volume: 5400 },
-    ],
-    history30d: [
-      { date: '10/20', price: 44000, volume: 3600 },
-      { date: '10/25', price: 43200, volume: 3800 },
-      { date: '10/30', price: 42500, volume: 4000 },
-      { date: '11/04', price: 41800, volume: 4150 },
-      { date: '11/09', price: 41200, volume: 4300 },
-      { date: '11/14', price: 39800, volume: 4800 },
-      { date: '11/18', price: 38500, volume: 5400 },
-    ],
-    markets: [
-      { market: '부산공동어시장', price: 38200, diff: -1400, volume: '3,200 상자', status: '약세' },
-      { market: '여수수협', price: 39000, diff: -900, volume: '1,100 상자', status: '보합' },
-      { market: '통영수협', price: 38400, diff: -1200, volume: '680 상자', status: '약세' },
-      { market: '제주수협', price: 39500, diff: -500, volume: '420 상자', status: '보합' },
-    ],
-  },
-  은갈치: {
-    name: '은갈치',
-    unit: '원 / 상자(10kg)',
-    grade: '특대 (4지 이상)',
-    currentAvg: 168000,
-    prevDiffRate: 5.6,
-    history7d: [
-      { date: '11/12', price: 154000, volume: 620 },
-      { date: '11/13', price: 156000, volume: 590 },
-      { date: '11/14', price: 158500, volume: 540 },
-      { date: '11/15', price: 160000, volume: 510 },
-      { date: '11/16', price: 162000, volume: 480 },
-      { date: '11/17', price: 159000, volume: 520 },
-      { date: '11/18', price: 168000, volume: 410 },
-    ],
-    history30d: [
-      { date: '10/20', price: 142000, volume: 780 },
-      { date: '10/25', price: 145000, volume: 740 },
-      { date: '10/30', price: 149000, volume: 700 },
-      { date: '11/04', price: 151000, volume: 670 },
-      { date: '11/09', price: 153000, volume: 640 },
-      { date: '11/14', price: 158500, volume: 540 },
-      { date: '11/18', price: 168000, volume: 410 },
-    ],
-    markets: [
-      { market: '제주서귀포수협', price: 171000, diff: 9500, volume: '190 상자', status: '급등' },
-      { market: '여수수협', price: 167000, diff: 8200, volume: '110 상자', status: '강세' },
-      { market: '목포수협', price: 165000, diff: 7500, volume: '65 상자', status: '강세' },
-      { market: '부산공동어시장', price: 169000, diff: 8800, volume: '45 상자', status: '강세' },
-    ],
-  },
-  오징어: {
-    name: '오징어',
-    unit: '원 / 상자(20미)',
-    grade: '선어 (8kg 내외)',
-    currentAvg: 64000,
-    prevDiffRate: 2.4,
-    history7d: [
-      { date: '11/12', price: 61000, volume: 1850 },
-      { date: '11/13', price: 61500, volume: 1790 },
-      { date: '11/14', price: 62000, volume: 1720 },
-      { date: '11/15', price: 62800, volume: 1680 },
-      { date: '11/16', price: 63200, volume: 1640 },
-      { date: '11/17', price: 62500, volume: 1710 },
-      { date: '11/18', price: 64000, volume: 1590 },
-    ],
-    history30d: [
-      { date: '10/20', price: 56000, volume: 2200 },
-      { date: '10/25', price: 57500, volume: 2100 },
-      { date: '10/30', price: 58900, volume: 2050 },
-      { date: '11/04', price: 59500, volume: 1980 },
-      { date: '11/09', price: 60400, volume: 1900 },
-      { date: '11/14', price: 62000, volume: 1720 },
-      { date: '11/18', price: 64000, volume: 1590 },
-    ],
-    markets: [
-      { market: '포항죽도위판장', price: 64500, diff: 1800, volume: '690 상자', status: '상승' },
-      { market: '주문진수협', price: 65000, diff: 2000, volume: '480 상자', status: '강세' },
-      { market: '부산공동어시장', price: 63200, diff: 1200, volume: '270 상자', status: '상승' },
-      { market: '울릉수협', price: 63300, diff: 1000, volume: '150 상자', status: '보합' },
-    ],
-  },
-  참조기: {
-    name: '참조기',
-    unit: '원 / 상자(100미)',
-    grade: '유자망 (11kg)',
-    currentAvg: 195000,
-    prevDiffRate: -1.5,
-    history7d: [
-      { date: '11/12', price: 201000, volume: 890 },
-      { date: '11/13', price: 199500, volume: 920 },
-      { date: '11/14', price: 198000, volume: 960 },
-      { date: '11/15', price: 197000, volume: 990 },
-      { date: '11/16', price: 198500, volume: 940 },
-      { date: '11/17', price: 198000, volume: 970 },
-      { date: '11/18', price: 195000, volume: 1050 },
-    ],
-    history30d: [
-      { date: '10/20', price: 212000, volume: 740 },
-      { date: '10/25', price: 209000, volume: 790 },
-      { date: '10/30', price: 206000, volume: 830 },
-      { date: '11/04', price: 204000, volume: 850 },
-      { date: '11/09', price: 202000, volume: 870 },
-      { date: '11/14', price: 198000, volume: 960 },
-      { date: '11/18', price: 195000, volume: 1050 },
-    ],
-    markets: [
-      { market: '목포수협', price: 196000, diff: -3000, volume: '540 상자', status: '약보합' },
-      { market: '영광법성포위판장', price: 198000, diff: -2500, volume: '290 상자', status: '보합' },
-      { market: '제주한림수협', price: 192000, diff: -3500, volume: '140 상자', status: '약세' },
-      { market: '여수수협', price: 194000, diff: -2800, volume: '80 상자', status: '약보합' },
-    ],
-  },
-  꽃게: {
-    name: '꽃게',
-    unit: '원 / kg',
-    grade: '활 수꽃게 (특대)',
-    currentAvg: 21500,
-    prevDiffRate: 4.9,
-    history7d: [
-      { date: '11/12', price: 19500, volume: 2100 },
-      { date: '11/13', price: 19800, volume: 2050 },
-      { date: '11/14', price: 20100, volume: 1980 },
-      { date: '11/15', price: 20400, volume: 1920 },
-      { date: '11/16', price: 20800, volume: 1850 },
-      { date: '11/17', price: 20500, volume: 1900 },
-      { date: '11/18', price: 21500, volume: 1740 },
-    ],
-    history30d: [
-      { date: '10/20', price: 17200, volume: 2800 },
-      { date: '10/25', price: 17900, volume: 2650 },
-      { date: '10/30', price: 18400, volume: 2500 },
-      { date: '11/04', price: 18900, volume: 2350 },
-      { date: '11/09', price: 19200, volume: 2200 },
-      { date: '11/14', price: 20100, volume: 1980 },
-      { date: '11/18', price: 21500, volume: 1740 },
-    ],
-    markets: [
-      { market: '태안신진항위판장', price: 21800, diff: 1100, volume: '780 kg', status: '강세' },
-      { market: '인천연안부두', price: 22000, diff: 1200, volume: '510 kg', status: '강세' },
-      { market: '보령대천항위판장', price: 21000, diff: 800, volume: '290 kg', status: '상승' },
-      { market: '군산비응항위판장', price: 21200, diff: 900, volume: '160 kg', status: '상승' },
-    ],
-  },
-};
-
-function inferPartnerMetadata(companyName, address, index) {
-  const fullText = `${companyName} ${address}`;
-  let category = '고등어';
-  let mainProduct = '선망 참고등어 / 선어 모듬';
-  let unitPrice = 41000;
-  let unitLabel = '원/상자';
-  let volumeUnit = '상자';
-
-  if (fullText.includes('방어') || fullText.includes('모슬포') || fullText.includes('울진') || fullText.includes('영덕')) {
-    category = '대방어';
-    mainProduct = '산지직송 활 대방어 / 숙성 필렛';
-    unitPrice = 26500;
-    unitLabel = '원/kg';
-    volumeUnit = 'kg';
-  } else if (fullText.includes('갈치') || fullText.includes('제주') || fullText.includes('서귀포') || fullText.includes('성산')) {
-    category = '은갈치';
-    mainProduct = '제주 채낚기 은갈치 (특대/10kg)';
-    unitPrice = 172000;
-    unitLabel = '원/상자';
-    volumeUnit = '상자';
-  } else if (fullText.includes('오징어') || fullText.includes('주문진') || fullText.includes('포항') || fullText.includes('속초') || fullText.includes('동해') || fullText.includes('울릉')) {
-    category = '오징어';
-    mainProduct = '동해안 당일바리 선어 오징어 (20미)';
-    unitPrice = 65500;
-    unitLabel = '원/상자';
-    volumeUnit = '상자';
-  } else if (fullText.includes('조기') || fullText.includes('굴비') || fullText.includes('법성포') || fullText.includes('목포') || fullText.includes('신안') || fullText.includes('영광')) {
-    category = '참조기';
-    mainProduct = '서해 유자망 참조기 / 영광굴비 원물';
-    unitPrice = 198000;
-    unitLabel = '원/상자';
-    volumeUnit = '상자';
-  } else if (fullText.includes('꽃게') || fullText.includes('대게') || fullText.includes('태안') || fullText.includes('인천') || fullText.includes('보령') || fullText.includes('서산') || fullText.includes('홍성')) {
-    category = '꽃게';
-    mainProduct = '서해안 활 수꽃게 / 연평도 급냉 꽃게';
-    unitPrice = 22500;
-    unitLabel = '원/kg';
-    volumeUnit = 'kg';
-  } else if (fullText.includes('전복') || fullText.includes('완도')) {
-    category = '대방어';
-    mainProduct = '완도 활전복 (10미/1kg) & 활어';
-    unitPrice = 34000;
-    unitLabel = '원/kg';
-    volumeUnit = 'kg';
-  } else if (fullText.includes('굴') || fullText.includes('통영') || fullText.includes('거제')) {
-    category = '고등어';
-    mainProduct = '통영 생굴 / 남해안 선망 고등어';
-    unitPrice = 39500;
-    unitLabel = '원/상자';
-    volumeUnit = '상자';
-  }
-
-  const totalVolume = 420 + ((index * 137) % 1850);
-  const status = index % 4 === 3 ? '보통' : '활발';
-  const tagKeyword = companyName.trim().replace(/\s+/g, '');
-
-  return {
-    id: `EX-${1001 + index}`,
-    companyName,
-    manager: '',
-    ceoName: '',
-    phone: '',
-    address,
-    snsPlatform: 'Instagram',
-    snsHandle: `#${tagKeyword}`,
-    instagramUrl: `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`,
-    blogUrl: `https://search.naver.com/search.naver?where=blog&query=${encodeURIComponent(companyName)}`,
-    category,
-    mainProduct,
-    searchedMenus: [],
-    aiSummary: '',
-    isSearched: false,
-    unitPrice,
-    unitLabel,
-    totalVolume,
-    volumeUnit,
-    status,
-    lastOrder: '2026-11-18',
-  };
-}
-
-// 초기 거래업체 및 SNS 피드는 비어있는 상태로 시작 (대표님이 올린 엑셀 파일만 저장/표시)
-const INITIAL_PARTNERS = [];
-const INITIAL_SNS_FEEDS = [];
-
-function parseSnsPostText(rawText) {
-  const speciesKeywords = ['대방어', '방어', '고등어', '은갈치', '갈치', '오징어', '참조기', '꽃게'];
-  let detectedSpecies = '대방어';
-  for (const kw of speciesKeywords) {
-    if (rawText.includes(kw)) {
-      if (kw === '방어') detectedSpecies = '대방어';
-      else if (kw === '갈치') detectedSpecies = '은갈치';
-      else detectedSpecies = kw;
-      break;
-    }
-  }
-
-  const priceMatch = rawText.match(/(\d{1,3}(?:,\d{3})+|\d{4,6})\s*원/);
-  const unitPrice = priceMatch ? Number(priceMatch[1].replace(/,/g, '')) : 35000;
-
-  const isKg = /kg|키로|킬로/i.test(rawText) && !/박스|상자/.test(rawText.split('원')[0]);
-  const unitLabel = isKg ? '원/kg' : '원/상자';
-  const volumeUnit = isKg ? 'kg' : '상자';
-
-  const volMatch = rawText.match(/(\d{1,4})\s*(상자|박스|마리|kg|키로)/i);
-  let volume = volMatch ? Number(volMatch[1]) : 50;
-  if (volMatch && volMatch[2] === '마리') {
-    volume = volume * 8;
-  }
-
-  const specMatch = rawText.match(/(특대|대사이즈|대|중|소|\d+kg급|\d+지|\d+미)/);
-  const spec = specMatch ? `${specMatch[0]} 산지직송` : '산지 특선 규격';
-  const available = !/마감|품절|종료/.test(rawText);
-
-  return {
-    species: detectedSpecies,
-    spec,
-    unitPrice,
-    unitLabel,
-    volume,
-    volumeUnit,
-    available,
-  };
-}
-
-// ==========================================
-// 2. Gemini API + Google Search Grounding 연동 (업체 메뉴·인스타·블로그 서칭)
+// 2. Gemini API + Google Search Grounding 연동 (네이버 플레이스·블로그 실제 판매 메뉴 서칭)
 // ==========================================
 async function searchPartnerWebAndMenus(partner) {
   const apiKey = '';
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
 
-  const regionHint = partner.address ? partner.address.split(' ').slice(0, 2).join(' ') : '';
-  const tagKeyword = partner.companyName.trim().replace(/\s+/g, '');
+  const combinedQuery = buildRegionCompanyQuery(partner.companyName, partner.address);
+  const tagKeyword = combinedQuery.replace(/\s+/g, '');
   const defaultInstaSearchUrl = `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`;
+  const naverPlaceMenuUrl = `https://search.naver.com/search.naver?query=${encodeURIComponent(
+    `${combinedQuery} 메뉴`
+  )}`;
 
-  const userQuery = `대한민국 수산물/식품 업체 "${partner.companyName}" (주소: ${partner.address}, 대표자: ${partner.ceoName || partner.manager})에 대해 구글과 네이버 정보를 검색해서 아래 JSON 형식으로만 정확히 응답해줘.
-판매 중인 메뉴(어종, 가공품, 식당/도매 품목 등)와 네이버 블로그/스마트스토어 주소를 찾아 요약해줘.
-
-반드시 순수 JSON 객체만 반환하세요:
+  const userQuery = `대한민국 업체 "${combinedQuery}" (상세주소: ${partner.address})의 네이버 플레이스(map.naver.com) 및 네이버 블로그 후기에 등록된 실제 판매 메뉴를 검색해서 정리해줘.
+중요 규칙:
+1. 네이버 플레이스 메뉴판이나 네이버 블로그 리뷰에서 실제로 확인되는 대표 메뉴 이름만 배열("menus")에 넣어줘. (예: ["대방어회", "모듬회", "물회"] 등)
+2. 추측하거나 지어내지 말고, 검색 결과에서 실제 메뉴가 확인되지 않으면 "menus"를 빈 배열 [] 로 반환해줘.
+3. 반드시 순수 JSON 객체만 반환해줘:
 {
-  "menus": ["판매메뉴1", "판매메뉴2", "판매메뉴3"],
-  "mainCategory": "대방어 | 고등어 | 은갈치 | 오징어 | 참조기 | 꽃게 중 가장 가까운 1개",
-  "blogUrl": "https://blog.naver.com/... 또는 네이버 검색 URL",
-  "summary": "해당 업체의 판매 메뉴 및 특징 1~2문장 요약"
+  "menus": ["실제 확인된 네이버 메뉴1", "실제 확인된 네이버 메뉴2"],
+  "blogUrl": "확인된 네이버 플레이스 또는 블로그 URL (없으면 빈 문자열)",
+  "summary": "네이버 검색으로 확인된 실제 메뉴 및 업종 특징 1~2문장 요약"
 }`;
 
   const payload = {
@@ -654,32 +583,33 @@ async function searchPartnerWebAndMenus(partner) {
       const jsonMatch = rawText.match(/\{[\s\S]*\}/);
       if (jsonMatch) {
         const parsed = JSON.parse(jsonMatch[0]);
+        const validMenus = Array.isArray(parsed.menus)
+          ? parsed.menus.map((m) => String(m).trim()).filter(Boolean)
+          : [];
         return {
-          menus: Array.isArray(parsed.menus) && parsed.menus.length > 0
-            ? parsed.menus
-            : [partner.mainProduct, '산지직송 활어/선어', '도매 납품 패키지'],
-          mainCategory: parsed.mainCategory || partner.category,
+          menus: validMenus,
           instagramHandle: `#${tagKeyword}`,
           instagramUrl: defaultInstaSearchUrl,
           blogUrl:
             parsed.blogUrl && parsed.blogUrl.startsWith('http')
               ? parsed.blogUrl
-              : partner.blogUrl,
+              : naverPlaceMenuUrl,
           summary:
             parsed.summary ||
-            `${partner.companyName}(${regionHint})의 판매 메뉴 검색이 완료되었습니다.`,
+            (validMenus.length > 0
+              ? `[${combinedQuery}] 네이버 검색 기준 대표 메뉴가 정리되었습니다.`
+              : `[${combinedQuery}] 네이버 플레이스 메뉴판에서 직접 확인이 필요합니다.`),
         };
       }
       break;
     } catch (err) {
       if (attempt === 2) {
         return {
-          menus: [partner.mainProduct, `${regionHint} 산지직송 특선`, '업소용 대용량 도매박스'],
-          mainCategory: partner.category,
+          menus: [],
           instagramHandle: `#${tagKeyword}`,
           instagramUrl: defaultInstaSearchUrl,
-          blogUrl: partner.blogUrl,
-          summary: `${partner.companyName}(${regionHint})의 취급 품목 정리가 완료되었습니다.`,
+          blogUrl: naverPlaceMenuUrl,
+          summary: `[${combinedQuery}] 네이버 메뉴 검색 결과를 불러오지 못했습니다. 우측 '네이버 메뉴' 버튼으로 바로 확인하세요.`,
         };
       }
       await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
@@ -1210,13 +1140,14 @@ export default function App() {
     setSearchingPartnerIds((prev) => ({ ...prev, [partner.id]: true }));
 
     const result = await searchPartnerWebAndMenus(partner);
+    const hasFoundMenus = result.menus && result.menus.length > 0;
 
     const nextPartners = partners.map((item) =>
       item.id === partner.id
         ? {
             ...item,
             searchedMenus: result.menus,
-            mainProduct: result.menus.join(' · '),
+            mainProduct: hasFoundMenus ? result.menus.join(' · ') : item.mainProduct,
             snsPlatform: 'Instagram',
             snsHandle: result.instagramHandle,
             instagramUrl: result.instagramUrl,
@@ -1238,7 +1169,11 @@ export default function App() {
       blogUrl: result.blogUrl,
       aiSummary: result.summary,
     });
-    showToast(`[${partner.companyName}] 판매 메뉴 서칭 완료!`);
+    showToast(
+      hasFoundMenus
+        ? `[${buildRegionCompanyQuery(partner.companyName, partner.address)}] 네이버 판매 메뉴 서칭 완료!`
+        : `[${buildRegionCompanyQuery(partner.companyName, partner.address)}] 검색 완료 (네이버 메뉴판 링크 연결됨)`
+    );
   };
 
   // 현재 페이지 상위 5개 업체 일괄 AI 메뉴 서칭
@@ -2193,50 +2128,131 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="h-64 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 10, right: 12, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#0284c7" stopOpacity={0.28} />
-                        <stop offset="95%" stopColor="#0284c7" stopOpacity={0.0} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
-                    <XAxis
-                      dataKey="date"
-                      tick={{ fontSize: 12, fill: '#64748b' }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11, fill: '#64748b' }}
-                      axisLine={false}
-                      tickLine={false}
-                      width={62}
-                      domain={['auto', 'auto']}
-                      tickFormatter={(val) => `${formatNumber(val)}`}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#0f172a',
-                        border: 'none',
-                        borderRadius: '10px',
-                        color: '#fff',
-                        fontSize: '12px',
-                      }}
-                      formatter={(value) => [`${formatNumber(value)} 원`, '평균 위판가']}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="price"
-                      stroke="#0284c7"
-                      strokeWidth={2.5}
-                      fillOpacity={1}
-                      fill="url(#priceGradient)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div className="h-64 w-full bg-white rounded-xl border border-slate-100 p-3 flex flex-col justify-between">
+                {(() => {
+                  const pts = chartData || [];
+                  const prices = pts.map((d) => Number(d.price) || 0);
+                  const minVal = prices.length ? Math.min(...prices) : 0;
+                  const maxVal = prices.length ? Math.max(...prices) : 100;
+                  const pad = Math.max(Math.round((maxVal - minVal) * 0.2), 500);
+                  const yMin = Math.max(0, minVal - pad);
+                  const yMax = maxVal + pad;
+                  const range = Math.max(1, yMax - yMin);
+                  const w = 560;
+                  const h = 180;
+                  const padL = 56;
+                  const padR = 16;
+                  const padT = 16;
+                  const padB = 26;
+                  const plotW = w - padL - padR;
+                  const plotH = h - padT - padB;
+
+                  const coords = pts.map((d, idx) => {
+                    const x =
+                      padL +
+                      (pts.length <= 1 ? plotW / 2 : (idx / (pts.length - 1)) * plotW);
+                    const y =
+                      padT + plotH - (((Number(d.price) || 0) - yMin) / range) * plotH;
+                    return { x, y, date: d.date, price: Number(d.price) || 0 };
+                  });
+
+                  const linePath = coords
+                    .map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`)
+                    .join(' ');
+                  const areaPath =
+                    coords.length > 0
+                      ? `${linePath} L ${coords[coords.length - 1].x.toFixed(1)} ${(
+                          padT + plotH
+                        ).toFixed(1)} L ${coords[0].x.toFixed(1)} ${(padT + plotH).toFixed(1)} Z`
+                      : '';
+
+                  const yTicks = [yMax, Math.round((yMax + yMin) / 2), yMin];
+
+                  return (
+                    <svg
+                      viewBox={`0 0 ${w} ${h}`}
+                      className="w-full h-full overflow-visible"
+                      role="img"
+                      aria-label={`${currentSpecies.name} 가격 추이 차트`}
+                    >
+                      <defs>
+                        <linearGradient id="priceAreaGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#0284c7" stopOpacity="0.26" />
+                          <stop offset="100%" stopColor="#0284c7" stopOpacity="0.01" />
+                        </linearGradient>
+                      </defs>
+
+                      {yTicks.map((val, idx) => {
+                        const ty = padT + (idx / 2) * plotH;
+                        return (
+                          <g key={idx}>
+                            <line
+                              x1={padL}
+                              y1={ty}
+                              x2={w - padR}
+                              y2={ty}
+                              stroke="#e2e8f0"
+                              strokeDasharray="3 3"
+                            />
+                            <text
+                              x={padL - 8}
+                              y={ty + 4}
+                              textAnchor="end"
+                              fill="#64748b"
+                              fontSize="10"
+                            >
+                              {formatNumber(val)}
+                            </text>
+                          </g>
+                        );
+                      })}
+
+                      {areaPath && <path d={areaPath} fill="url(#priceAreaGrad)" />}
+                      {linePath && (
+                        <path
+                          d={linePath}
+                          fill="none"
+                          stroke="#0284c7"
+                          strokeWidth="2.5"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      )}
+
+                      {coords.map((c, idx) => (
+                        <g key={idx}>
+                          <circle
+                            cx={c.x}
+                            cy={c.y}
+                            r="4"
+                            fill="#ffffff"
+                            stroke="#0284c7"
+                            strokeWidth="2.5"
+                          />
+                          <text
+                            x={c.x}
+                            y={c.y - 8}
+                            textAnchor="middle"
+                            fill="#0f172a"
+                            fontSize="9.5"
+                            fontWeight="600"
+                          >
+                            {formatNumber(c.price)}
+                          </text>
+                          <text
+                            x={c.x}
+                            y={h - 6}
+                            textAnchor="middle"
+                            fill="#64748b"
+                            fontSize="10.5"
+                          >
+                            {c.date}
+                          </text>
+                        </g>
+                      ))}
+                    </svg>
+                  );
+                })()}
               </div>
             </div>
 
@@ -2367,9 +2383,9 @@ export default function App() {
                         <span className="font-bold text-sm text-slate-900">{feed.companyName}</span>
                         <a
                           href={`https://www.instagram.com/explore/tags/${encodeURIComponent(
-                            feed.companyName.trim().replace(/\s+/g, '')
+                            buildRegionCompanyQuery(feed.companyName, '').replace(/\s+/g, '')
                           )}/`}
-                          onClick={(e) => openInstagramSearchInApp(e, feed.companyName)}
+                          onClick={(e) => openInstagramSearchInApp(e, feed.companyName, '')}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-pink-50 text-pink-700 border border-pink-200 hover:bg-pink-100"
@@ -2502,54 +2518,51 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-              <div className="lg:col-span-5 h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={topSellingItems}
-                    layout="vertical"
-                    margin={{ top: 0, right: 20, left: 0, bottom: 0 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                    <XAxis type="number" hide />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      width={58}
-                      tick={{ fontSize: 12, fontWeight: 600, fill: '#334155' }}
-                      axisLine={false}
-                      tickLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#0f172a',
-                        border: 'none',
-                        borderRadius: '8px',
-                        color: '#fff',
-                        fontSize: '12px',
-                      }}
-                      formatter={(val, _name, props) => [
-                        `${formatNumber(val)} ${props.payload.unit}`,
-                        '누적 거래량',
-                      ]}
-                    />
-                    <Bar dataKey="volume" radius={[0, 6, 6, 0]} barSize={20}>
-                      {topSellingItems.map((_entry, index) => (
-                        <Cell
-                          key={`cell-${index}`}
-                          fill={
-                            index === 0
-                              ? '#0284c7'
-                              : index === 1
-                              ? '#0ea5e9'
-                              : index === 2
-                              ? '#38bdf8'
-                              : '#94a3b8'
-                          }
-                        />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+              <div className="lg:col-span-5 h-48 bg-slate-50/70 rounded-xl border border-slate-100 p-3.5 flex flex-col justify-center">
+                {topSellingItems.length === 0 ? (
+                  <div className="text-center text-xs text-slate-400">
+                    엑셀 파일을 업로드하면 품목별 출고 비중 그래프가 표시됩니다.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {(() => {
+                      const maxVol = Math.max(
+                        1,
+                        ...topSellingItems.map((it) => Number(it.volume) || 0)
+                      );
+                      return topSellingItems.map((item, idx) => {
+                        const pct = Math.min(
+                          100,
+                          Math.round(((Number(item.volume) || 0) / maxVol) * 100)
+                        );
+                        const barColor =
+                          idx === 0
+                            ? 'bg-sky-600'
+                            : idx === 1
+                            ? 'bg-sky-500'
+                            : idx === 2
+                            ? 'bg-sky-400'
+                            : 'bg-slate-400';
+                        return (
+                          <div key={item.name} className="space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="font-bold text-slate-700">{item.name}</span>
+                              <span className="text-[11px] font-semibold text-slate-500">
+                                {formatNumber(item.volume)} {item.unit} ({item.share}%)
+                              </span>
+                            </div>
+                            <div className="w-full h-2.5 bg-slate-200/80 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                )}
               </div>
 
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
@@ -2599,7 +2612,7 @@ export default function App() {
                   </span>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  대표님이 업로드한 엑셀 거래처만 저장·표시됩니다 · 구글은 업체명 검색, 인스타는 앱 접속 후 업체명 검색으로 연결됩니다.
+                  인스타·네이버·구글 모두 <strong>[제일 큰 소재지 + 업체명]</strong>으로 검색되며, 메뉴 서칭은 네이버 실제 메뉴판 기준으로 정리됩니다.
                 </p>
               </div>
 
@@ -2712,25 +2725,38 @@ export default function App() {
                     {selectedPartnerDetail.aiSummary}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span className="text-[11px] font-semibold text-slate-500 mr-1">확인된 판매 메뉴:</span>
-                    {(selectedPartnerDetail.searchedMenus || []).map((menu, i) => (
-                      <span
-                        key={i}
-                        className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white text-sky-800 border border-sky-200 shadow-2xs"
-                      >
-                        {menu}
+                    <span className="text-[11px] font-semibold text-slate-500 mr-1">네이버 확인 메뉴:</span>
+                    {(selectedPartnerDetail.searchedMenus || []).length > 0 ? (
+                      selectedPartnerDetail.searchedMenus.map((menu, i) => (
+                        <span
+                          key={i}
+                          className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white text-sky-800 border border-sky-200 shadow-2xs"
+                        >
+                          {menu}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-slate-500">
+                        자동 추출된 메뉴가 없습니다. 우측 &apos;네이버 메뉴 보기&apos;를 눌러 직접 확인하세요.
                       </span>
-                    ))}
+                    )}
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">
                   <a
                     href={`https://www.instagram.com/explore/tags/${encodeURIComponent(
-                      selectedPartnerDetail.companyName.trim().replace(/\s+/g, '')
+                      buildRegionCompanyQuery(
+                        selectedPartnerDetail.companyName,
+                        selectedPartnerDetail.address
+                      ).replace(/\s+/g, '')
                     )}/`}
                     onClick={(e) =>
-                      openInstagramSearchInApp(e, selectedPartnerDetail.companyName)
+                      openInstagramSearchInApp(
+                        e,
+                        selectedPartnerDetail.companyName,
+                        selectedPartnerDetail.address
+                      )
                     }
                     target="_blank"
                     rel="noreferrer"
@@ -2740,13 +2766,18 @@ export default function App() {
                     인스타 앱 검색
                   </a>
                   <a
-                    href={selectedPartnerDetail.blogUrl}
+                    href={`https://search.naver.com/search.naver?query=${encodeURIComponent(
+                      `${buildRegionCompanyQuery(
+                        selectedPartnerDetail.companyName,
+                        selectedPartnerDetail.address
+                      )} 메뉴`
+                    )}`}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700"
                   >
                     <BookOpen className="w-3.5 h-3.5" />
-                    네이버 블로그
+                    네이버 메뉴 보기
                   </a>
                   <button
                     onClick={() => setSelectedPartnerDetail(null)}
@@ -2801,17 +2832,22 @@ export default function App() {
                   ) : (
                     paginatedPartners.map((partner) => {
                       const isSearchingThis = Boolean(searchingPartnerIds[partner.id]);
-                      const cleanCompanyName = partner.companyName.trim();
-                      const tagKeyword = cleanCompanyName.replace(/\s+/g, '');
+                      const combinedQuery = buildRegionCompanyQuery(
+                        partner.companyName,
+                        partner.address
+                      );
+                      const tagKeyword = combinedQuery.replace(/\s+/g, '');
                       const instaTagUrl = `https://www.instagram.com/explore/tags/${encodeURIComponent(
                         tagKeyword
                       )}/`;
                       const naverSearchUrl = `https://search.naver.com/search.naver?query=${encodeURIComponent(
-                        cleanCompanyName
+                        combinedQuery
                       )}`;
-                      // 요청사항: 구글 검색 시 순수 '업체명'으로 검색
+                      const naverMenuSearchUrl = `https://search.naver.com/search.naver?query=${encodeURIComponent(
+                        `${combinedQuery} 메뉴`
+                      )}`;
                       const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(
-                        cleanCompanyName
+                        combinedQuery
                       )}`;
 
                       return (
@@ -2843,168 +2879,93 @@ export default function App() {
                             </span>
                           </td>
 
-                          {/* 판매 메뉴 (AI 서칭 결과) */}
+                          {/* 판매 메뉴 (네이버 검색 기반 AI 정리) */}
                           <td className="py-3 px-3 align-top max-w-[240px]">
-                            {partner.isSearched && partner.searchedMenus?.length > 0 ? (
-                              <div className="space-y-1">
-                                <div className="flex flex-wrap gap-1">
-                                  {partner.searchedMenus.map((m, idx) => (
-                                    <span
-                                      key={idx}
-                                      className="inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-100"
-                                    >
-                                      {m}
-                                    </span>
-                                  ))}
+                            {partner.isSearched ? (
+                              partner.searchedMenus?.length > 0 ? (
+                                <div className="space-y-1">
+                                  <div className="flex flex-wrap gap-1">
+                                    {partner.searchedMenus.map((m, idx) => (
+                                      <span
+                                        key={idx}
+                                        className="inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                      >
+                                        {m}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  {partner.aiSummary && (
+                                    <p className="text-[11px] text-slate-500 line-clamp-2">
+                                      {partner.aiSummary}
+                                    </p>
+                                  )}
                                 </div>
-                                {partner.aiSummary && (
-                                  <p className="text-[11px] text-slate-500 line-clamp-2">
-                                    {partner.aiSummary}
-                                  </p>
-                                )}
-                              </div>
+                              ) : (
+                                <div className="space-y-1">
+                                  <div className="text-[11px] font-medium text-slate-600">
+                                    네이버 자동 추출 메뉴 없음
+                                  </div>
+                                  <a
+                                    href={naverMenuSearchUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:underline"
+                                  >
+                                    네이버 메뉴판 직접 열기 →
+                                  </a>
+                                </div>
+                              )
                             ) : (
                               <div>
                                 <div className="font-medium text-slate-700">{partner.mainProduct}</div>
                                 <span className="text-[11px] text-slate-400">
-                                  우측 &apos;메뉴 서칭&apos; 클릭 시 실제 메뉴 수집
+                                  우측 &apos;메뉴 서칭&apos; 클릭 시 네이버 실제 메뉴 정리
                                 </span>
                               </div>
                             )}
                           </td>
 
-                          {/* 인스타(앱 업체명 검색) / 네이버 블로그 / 구글(업체명 검색) 바로가기 */}
+                          {/* 인스타(앱) / 네이버 / 구글 ('제일 큰 소재지 + 업체명' 통합 검색) */}
                           <td className="py-3 px-3 align-top">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <a
                                 href={instaTagUrl}
-                                onClick={(e) => openInstagramSearchInApp(e, cleanCompanyName)}
+                                onClick={(e) =>
+                                  openInstagramSearchInApp(e, partner.companyName, partner.address)
+                                }
                                 target="_blank"
                                 rel="noreferrer"
-                                title="모바일 인스타그램 앱으로 접속해 업체명으로 검색합니다"
+                                title={`인스타 앱에서 '${combinedQuery}' 검색`}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-pink-50 text-pink-700 border border-pink-200 hover:bg-pink-100 transition-colors"
                               >
                                 <Instagram className="w-3 h-3" />
-                                인스타 검색
+                                인스타
                               </a>
 
                               <a
-                                href={partner.blogUrl || naverSearchUrl}
+                                href={naverSearchUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                title="네이버 블로그 및 플레이스 검색"
+                                title={`네이버에서 '${combinedQuery}' 검색`}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
                               >
                                 <BookOpen className="w-3 h-3" />
-                                네이버·블로그
+                                네이버
                               </a>
 
                               <a
                                 href={googleSearchUrl}
                                 target="_blank"
                                 rel="noreferrer"
-                                title={`구글에서 '${cleanCompanyName}' 검색`}
+                                title={`구글에서 '${combinedQuery}' 검색`}
                                 className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
                               >
                                 <Globe className="w-3 h-3" />
-                                구글검색
+                                구글
                               </a>
                             </div>
                             <div className="text-[10px] text-slate-400 mt-1">
-                              검색 키워드: {cleanCompanyName}
-                            </div>
-                          </td>
-
-                          {/* 주소 */}
-                          <td className="py-3 px-3 align-top max-w-[210px]">
-                            <div className="text-slate-700 leading-snug">{partner.address}</div>
-                            <span className="inline-block mt-1 px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold">
-                              주력: {partner.category} · {formatNumber(partner.unitPrice)}{partner.unitLabel}
-                            </span>
-                          </td>
-
-                          {/* 판매 메뉴 (AI 서칭 결과) */}
-                          <td className="py-3 px-3 align-top max-w-[240px]">
-                            {partner.isSearched && partner.searchedMenus?.length > 0 ? (
-                              <div className="space-y-1">
-                                <div className="flex flex-wrap gap-1">
-                                  {partner.searchedMenus.map((m, idx) => (
-                                    <span
-                                      key={idx}
-                                      className="inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold bg-indigo-50 text-indigo-800 border border-indigo-100"
-                                    >
-                                      {m}
-                                    </span>
-                                  ))}
-                                </div>
-                                {partner.aiSummary && (
-                                  <p className="text-[11px] text-slate-500 line-clamp-2">
-                                    {partner.aiSummary}
-                                  </p>
-                                )}
-                              </div>
-                            ) : (
-                              <div>
-                                <div className="font-medium text-slate-700">{partner.mainProduct}</div>
-                                <span className="text-[11px] text-slate-400">
-                                  우측 &apos;메뉴 서칭&apos; 클릭 시 실제 메뉴 수집
-                                </span>
-                              </div>
-                            )}
-                          </td>
-
-                          {/* 인스타 / 네이버 블로그 / 구글 바로가기 */}
-                          <td className="py-3 px-3 align-top">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              {partner.instagramUrl ? (
-                                <a
-                                  href={partner.instagramUrl}
-                                  onClick={(e) =>
-                                    openInstagramInApp(e, partner.snsHandle, partner.instagramUrl)
-                                  }
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  title="클릭 시 스마트폰 인스타그램 앱으로 바로 연결됩니다"
-                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-pink-50 text-pink-700 border border-pink-200 hover:bg-pink-100 transition-colors"
-                                >
-                                  <Instagram className="w-3 h-3" />
-                                  인스타 앱
-                                </a>
-                              ) : (
-                                <span
-                                  title="확인된 인스타그램 계정이 없습니다"
-                                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-slate-100 text-slate-400 border border-slate-200 select-none"
-                                >
-                                  인스타 없음
-                                </span>
-                              )}
-
-                              <a
-                                href={partner.blogUrl || naverSearchUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                title="네이버 블로그 및 플레이스 검색"
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
-                              >
-                                <BookOpen className="w-3 h-3" />
-                                네이버·블로그
-                              </a>
-
-                              <a
-                                href={googleSearchUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                title="구글 판매 메뉴 검색"
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-                              >
-                                <Globe className="w-3 h-3" />
-                                구글검색
-                              </a>
-                            </div>
-                            <div className="text-[10px] text-slate-400 mt-1">
-                              {partner.instagramUrl
-                                ? `채널 ID: ${partner.snsHandle}`
-                                : '인스타그램 공식 계정 미등록'}
+                              검색어: <strong className="text-slate-600">{combinedQuery}</strong>
                             </div>
                           </td>
 
