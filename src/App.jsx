@@ -872,14 +872,23 @@ export default function App() {
     if (!url || !anonKey) return;
     try {
       setSyncStatus('클라우드 동기화 중...');
-      const cleanUrl = url.replace(/\/$/, '');
+      const cleanUrl = url.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
+      const cleanKey = anonKey.trim();
+      const headers = {
+        apikey: cleanKey,
+      };
+      // 구형 JWT(eyJ...) 키인 경우에만 Authorization Bearer 헤더 추가 (신형 sb_publishable_ 키 호환)
+      if (cleanKey.startsWith('eyJ')) {
+        headers.Authorization = `Bearer ${cleanKey}`;
+      }
+
       const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?id=eq.main&select=*`, {
-        headers: {
-          apikey: anonKey,
-          Authorization: `Bearer ${anonKey}`,
-        },
+        headers,
       });
-      if (!res.ok) throw new Error('Supabase 조회 실패');
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        throw new Error(`HTTP ${res.status}: ${errText}`);
+      }
       const rows = await res.json();
       if (Array.isArray(rows) && rows.length > 0 && rows[0].payload) {
         const remote = rows[0].payload;
@@ -927,15 +936,20 @@ export default function App() {
     if (activeSb && activeSb.url && activeSb.anonKey) {
       try {
         setSyncStatus('클라우드 저장 중...');
-        const cleanUrl = activeSb.url.replace(/\/$/, '');
+        const cleanUrl = activeSb.url.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
+        const cleanKey = activeSb.anonKey.trim();
+        const headers = {
+          apikey: cleanKey,
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates',
+        };
+        if (cleanKey.startsWith('eyJ')) {
+          headers.Authorization = `Bearer ${cleanKey}`;
+        }
+
         const res = await fetch(`${cleanUrl}/rest/v1/seafood_state`, {
           method: 'POST',
-          headers: {
-            apikey: activeSb.anonKey,
-            Authorization: `Bearer ${activeSb.anonKey}`,
-            'Content-Type': 'application/json',
-            Prefer: 'resolution=merge-duplicates',
-          },
+          headers,
           body: JSON.stringify({
             id: 'main',
             payload: {
@@ -947,11 +961,24 @@ export default function App() {
             updated_at: new Date().toISOString(),
           }),
         });
-        if (!res.ok) throw new Error('Supabase 저장 오류');
+        if (!res.ok) {
+          const errDetail = await res.text().catch(() => '');
+          throw new Error(`HTTP ${res.status}: ${errDetail}`);
+        }
         setSyncStatus('PC·모바일 실시간 동기화됨');
         return;
       } catch (err) {
-        setSyncStatus('클라우드 저장 실패 (로컬 저장됨)');
+        const msg = String(err?.message || '');
+        if (msg.includes('404') || msg.includes('PGRST205') || msg.includes('seafood_state')) {
+          setSyncStatus('API 캐시 갱신 필요 (10초 후 재시도)');
+          showToast('Supabase 새 테이블 반영 중입니다. 10초 뒤 [동기화 설정]에서 다시 저장해 주세요!');
+        } else if (msg.includes('401') || msg.includes('403') || msg.includes('Invalid API key')) {
+          setSyncStatus('API 키 오류 (키 다시 확인)');
+          showToast('Supabase API Keys에서 Publishable 또는 anon public 키를 다시 복사해 넣어주세요.');
+        } else {
+          setSyncStatus(`연결 오류 (${msg.slice(0, 28)})`);
+          showToast(`클라우드 연결 응답: ${msg.slice(0, 60)}`);
+        }
         return;
       }
     }
@@ -1252,31 +1279,60 @@ export default function App() {
       const rows = window.XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
 
       const parsed = [];
+      // 헤더 행에서 열 위치를 자동 감지 (기본값: A열=순서(0), B열=업체명(1), C열=대표자(2), D열=전화번호(3), E열=주소(4))
+      let colMap = { name: 1, ceo: 2, phone: 3, address: 4 };
+      let headerRowIndex = -1;
+
+      for (let i = 0; i < Math.min(5, rows.length); i++) {
+        const r = rows[i];
+        if (!Array.isArray(r)) continue;
+        const cells = r.map((c) => String(c || '').trim());
+        const nameIdx = cells.findIndex((c) => c.includes('업체') || c.includes('상호') || c.includes('거래처'));
+        if (nameIdx !== -1) {
+          headerRowIndex = i;
+          const ceoIdx = cells.findIndex((c) => c.includes('대표') || c.includes('담당') || c.includes('성명'));
+          const phoneIdx = cells.findIndex((c) => c.includes('전화') || c.includes('연락') || c.includes('휴대폰'));
+          const addrIdx = cells.findIndex((c) => c.includes('주소') || c.includes('소재지'));
+          colMap = {
+            name: nameIdx,
+            ceo: ceoIdx !== -1 ? ceoIdx : nameIdx + 1,
+            phone: phoneIdx !== -1 ? phoneIdx : nameIdx + 2,
+            address: addrIdx !== -1 ? addrIdx : nameIdx + 3,
+          };
+          break;
+        }
+      }
+
       rows.forEach((row, idx) => {
         if (!Array.isArray(row) || row.length === 0) return;
-        const col0 = String(row[0] || '').trim();
-        const col1 = String(row[1] || '').trim();
-        const col2 = String(row[2] || '').trim();
-        const col3 = String(row[3] || '').trim();
+        if (idx <= headerRowIndex) return;
 
-        if (
-          idx === 0 &&
-          (col0.includes('업체') || col0.includes('상호') || col2.includes('전화'))
-        ) {
+        // 헤더가 없었던 경우 첫 행에 '순서/번호'가 들어있으면 건너뜀
+        const firstCell = String(row[0] || '').trim();
+        if (headerRowIndex === -1 && idx === 0 && (firstCell === '순서' || firstCell === '번호' || firstCell.toLowerCase() === 'no')) {
           return;
         }
-        if (!col0 || col0.includes('발주처')) return;
+
+        // B열(또는 감지된 업체명 열)을 업체명으로 추출 (A열이 순번인 경우 대비)
+        const companyName = String(row[colMap.name] || '').trim();
+        const ceoName = String(row[colMap.ceo] || '').trim();
+        const phone = String(row[colMap.phone] || '').trim();
+        const address = String(row[colMap.address] || '').trim();
+
+        if (!companyName || companyName.includes('발주처') || companyName === '업체명' || companyName === '상호') {
+          return;
+        }
 
         parsed.push({
-          companyName: col0,
-          ceoName: col1 || '담당자',
-          phone: col2 || '-',
-          address: col3 || '주소 미기재',
+          companyName,
+          ceoName: ceoName || '담당자',
+          phone: phone || '-',
+          address: address || '주소 미기재',
         });
       });
 
       if (parsed.length === 0) {
-        showToast('엑셀 파일에서 유효한 업체 행을 찾지 못했습니다. (열 순서: 업체명, 대표자, 전화번호, 주소)');
+        showToast('엑셀 파일에서 유효한 업체 행을 찾지 못했습니다. (A열: 순서, B열: 업체명 기준)');
         return;
       }
 
@@ -3164,7 +3220,7 @@ alter table seafood_state disable row level security;`}
                 엑셀 파일(.xlsx, .xls, .csv)을 선택해 주세요
               </div>
               <p className="text-[11px] text-slate-500">
-                열 구성: <strong>[업체명(상호)] · [대표자/담당자] · [전화번호] · [주소]</strong>
+                열 구성: <strong>[A열: 순서] · [B열: 업체명] · [C열: 대표자] · [D열: 전화번호] · [E열: 주소]</strong>
                 <br />
                 기존에 등록된 업체명과 중복되는 행은 자동으로 제외되고 신규 업체만 추가됩니다.
               </p>
