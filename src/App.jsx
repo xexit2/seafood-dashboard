@@ -300,7 +300,6 @@ async function parseXlsxNatively(arrayBuffer) {
     return null;
   };
 
-  // 1) ZIP Central Directory(EOCD)에서 정확한 압축 크기와 오프셋을 읽어 모든 .xlsx 호환 보장
   let eocdOffset = -1;
   for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65558); i--) {
     if (view.getUint32(i, true) === 0x06054b50) {
@@ -657,6 +656,16 @@ const INITIAL_SPECIES_DATA = {
   },
 };
 
+function isLegacySpeciesMap(spMap) {
+  if (!spMap || typeof spMap !== 'object') return true;
+  const keys = Object.keys(spMap);
+  if (keys.length === 0) return true;
+  const legacyOnly = ['대방어', '은갈치', '참돔', '광어', '오징어', '꽃게'];
+  const hasNewCore = keys.includes('삼치') && keys.includes('금태');
+  const hasLegacy = keys.some((k) => legacyOnly.includes(k));
+  return !hasNewCore && hasLegacy;
+}
+
 const INITIAL_PARTNERS = [];
 const INITIAL_SNS_FEEDS = [];
 
@@ -742,8 +751,8 @@ function parseSnsPostText(rawText = '') {
   };
 }
 
-async function searchPartnerWebAndMenus(partner) {
-  const apiKey = '';
+async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
+  const apiKey = (geminiApiKey || '').trim();
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
 
   const combinedQuery = buildRegionCompanyQuery(partner.companyName, partner.address);
@@ -813,16 +822,18 @@ async function searchPartnerWebAndMenus(partner) {
           instagramHandle: `#${tagKeyword}`,
           instagramUrl: defaultInstaSearchUrl,
           blogUrl: naverPlaceMenuUrl,
-          summary: `[${combinedQuery}] 네이버 리뷰·메뉴 검색 결과를 불러오지 못했습니다. 우측 '네이버 메뉴' 버튼으로 바로 확인하세요.`,
+          summary: !apiKey
+            ? `[${combinedQuery}] 실제 사이트에서 AI 자동 분석을 쓰려면 상단 [동기화 설정]에 무료 Gemini API 키를 입력해 주세요. 아래 '네이버 메뉴' 버튼으로 즉시 확인 가능합니다.`
+            : `[${combinedQuery}] 네이버 리뷰·메뉴 검색 결과를 불러오지 못했습니다. 우측 '네이버 메뉴' 버튼으로 바로 확인하세요.`,
         };
       }
-      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+      await new Promise((r) => setTimeout(r, 800 * Math.pow(2, attempt)));
     }
   }
 }
 
-async function fetchSpeciesAuctionTrend(speciesKeyword) {
-  const apiKey = '';
+async function fetchSpeciesAuctionTrend(speciesKeyword, geminiApiKey = '') {
+  const apiKey = (geminiApiKey || '').trim();
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
 
   const cleanName = String(speciesKeyword || '').trim();
@@ -862,7 +873,7 @@ async function fetchSpeciesAuctionTrend(speciesKeyword) {
     tools: [{ google_search: {} }],
   };
 
-  for (let attempt = 0; attempt < 3; attempt++) {
+  for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -877,38 +888,73 @@ async function fetchSpeciesAuctionTrend(speciesKeyword) {
         const parsed = JSON.parse(jsonMatch[0]);
         if (parsed && parsed.currentAvg && Array.isArray(parsed.history7d) && Array.isArray(parsed.markets)) {
           return {
-            name: String(parsed.name || cleanName),
-            grade: String(parsed.grade || '산지 위판 표준 규격'),
-            unit: String(parsed.unit || '원/kg'),
-            currentAvg: Number(parsed.currentAvg) || 30000,
-            prevDiffRate: Number(parsed.prevDiffRate) || 0,
-            history7d: parsed.history7d.map((h) => ({
-              date: String(h.date || ''),
-              price: Number(h.price) || 0,
-            })),
-            history30d: Array.isArray(parsed.history30d)
-              ? parsed.history30d.map((h) => ({
-                  date: String(h.date || ''),
-                  price: Number(h.price) || 0,
-                }))
-              : parsed.history7d,
-            markets: parsed.markets.map((m) => ({
-              market: String(m.market || '산지위판장'),
-              price: Number(m.price) || Number(parsed.currentAvg) || 30000,
-              diff: Number(m.diff) || 0,
-              volume: String(m.volume || '집계중'),
-              status: String(m.status || '보합'),
-            })),
+            isFallback: false,
+            data: {
+              name: String(parsed.name || cleanName),
+              grade: String(parsed.grade || '산지 위판 표준 규격'),
+              unit: String(parsed.unit || '원/kg'),
+              currentAvg: Number(parsed.currentAvg) || 30000,
+              prevDiffRate: Number(parsed.prevDiffRate) || 0,
+              history7d: parsed.history7d.map((h) => ({
+                date: String(h.date || ''),
+                price: Number(h.price) || 0,
+              })),
+              history30d: Array.isArray(parsed.history30d)
+                ? parsed.history30d.map((h) => ({
+                    date: String(h.date || ''),
+                    price: Number(h.price) || 0,
+                  }))
+                : parsed.history7d,
+              markets: parsed.markets.map((m) => ({
+                market: String(m.market || '산지위판장'),
+                price: Number(m.price) || Number(parsed.currentAvg) || 30000,
+                diff: Number(m.diff) || 0,
+                volume: String(m.volume || '집계중'),
+                status: String(m.status || '보합'),
+              })),
+            },
           };
         }
       }
       break;
     } catch (err) {
-      if (attempt === 2) return null;
-      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+      if (attempt === 1) break;
+      await new Promise((r) => setTimeout(r, 700));
     }
   }
-  return null;
+
+  // 실제 사이트에서 Gemini API 키가 없거나 일시 차단된 경우에도 어종 탭이 즉시 추가되도록 기본 표준 시세 템플릿 반환
+  return {
+    isFallback: true,
+    data: {
+      name: cleanName,
+      grade: '산지 위판 표준 규격 (수동 시세 입력 가능)',
+      unit: '원/kg',
+      currentAvg: 35000,
+      prevDiffRate: 0.0,
+      history7d: [
+        { date: '11/13', price: 35000 },
+        { date: '11/14', price: 35000 },
+        { date: '11/15', price: 35000 },
+        { date: '11/16', price: 35000 },
+        { date: '11/17', price: 35000 },
+        { date: '11/18', price: 35000 },
+        { date: '11/19', price: 35000 },
+      ],
+      history30d: [
+        { date: '10/22', price: 35000 },
+        { date: '10/29', price: 35000 },
+        { date: '11/05', price: 35000 },
+        { date: '11/12', price: 35000 },
+        { date: '11/19', price: 35000 },
+      ],
+      markets: [
+        { market: '부산공동어시장', price: 35000, diff: 0, volume: '집계중', status: '보합' },
+        { market: '통영수협위판장', price: 35000, diff: 0, volume: '집계중', status: '보합' },
+        { market: '여수수협위판장', price: 35000, diff: 0, volume: '집계중', status: '보합' },
+      ],
+    },
+  };
 }
 
 const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
@@ -916,8 +962,8 @@ const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
 export default function App() {
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [syncStatus, setSyncStatus] = useState('연결 중...');
-  const [supabaseConfig, setSupabaseConfig] = useState({ url: '', anonKey: '' });
-  const [supabaseForm, setSupabaseForm] = useState({ url: '', anonKey: '' });
+  const [supabaseConfig, setSupabaseConfig] = useState({ url: '', anonKey: '', geminiKey: '' });
+  const [supabaseForm, setSupabaseForm] = useState({ url: '', anonKey: '', geminiKey: '' });
 
   const [savedPin, setSavedPin] = useState(null);
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -983,7 +1029,7 @@ export default function App() {
 
   const showToast = (msg) => {
     setToastMessage(msg);
-    setTimeout(() => setToastMessage(''), 3500);
+    setTimeout(() => setToastMessage(''), 4000);
   };
 
   useEffect(() => {
@@ -998,12 +1044,15 @@ export default function App() {
 
       if (localSb) {
         const parsedSb = JSON.parse(localSb);
-        if (parsedSb.url && parsedSb.anonKey) {
-          loadedSbUrl = parsedSb.url;
-          loadedSbKey = parsedSb.anonKey;
-          setSupabaseConfig(parsedSb);
-          setSupabaseForm(parsedSb);
-        }
+        const normalizedSb = {
+          url: parsedSb.url || '',
+          anonKey: parsedSb.anonKey || '',
+          geminiKey: parsedSb.geminiKey || '',
+        };
+        loadedSbUrl = normalizedSb.url;
+        loadedSbKey = normalizedSb.anonKey;
+        setSupabaseConfig(normalizedSb);
+        setSupabaseForm(normalizedSb);
       }
 
       if (localPin) setSavedPin(localPin);
@@ -1016,11 +1065,16 @@ export default function App() {
       }
       if (localSpecies) {
         const parsedSp = JSON.parse(localSpecies);
-        if (parsedSp && Object.keys(parsedSp).length > 0) {
+        if (parsedSp && !isLegacySpeciesMap(parsedSp)) {
           setSpeciesData(parsedSp);
           if (!parsedSp[selectedSpecies]) {
             setSelectedSpecies(Object.keys(parsedSp)[0]);
           }
+        } else {
+          // 이전 버전(대방어·은갈치 등) 초기 데이터는 새 기본 4종(삼치·금태·고등어·전갱이)으로 자동 갱신
+          setSpeciesData(INITIAL_SPECIES_DATA);
+          setSelectedSpecies('삼치');
+          localStorage.setItem(`${appId}_species`, JSON.stringify(INITIAL_SPECIES_DATA));
         }
       }
       if (localFeeds) setSnsFeeds(JSON.parse(localFeeds));
@@ -1065,9 +1119,24 @@ export default function App() {
           setPartners(remote.partners);
           localStorage.setItem(`${appId}_partners`, JSON.stringify(remote.partners));
         }
-        if (remote.speciesData) {
+        if (remote.speciesData && !isLegacySpeciesMap(remote.speciesData)) {
           setSpeciesData(remote.speciesData);
           localStorage.setItem(`${appId}_species`, JSON.stringify(remote.speciesData));
+          if (!remote.speciesData[selectedSpecies]) {
+            setSelectedSpecies(Object.keys(remote.speciesData)[0]);
+          }
+        } else {
+          setSpeciesData(INITIAL_SPECIES_DATA);
+          setSelectedSpecies('삼치');
+          localStorage.setItem(`${appId}_species`, JSON.stringify(INITIAL_SPECIES_DATA));
+        }
+        if (remote.geminiKey) {
+          setSupabaseConfig((prev) => {
+            const next = { ...prev, geminiKey: remote.geminiKey };
+            localStorage.setItem(`${appId}_supabase`, JSON.stringify(next));
+            return next;
+          });
+          setSupabaseForm((prev) => ({ ...prev, geminiKey: remote.geminiKey }));
         }
         if (Array.isArray(remote.snsFeeds)) {
           setSnsFeeds(remote.snsFeeds);
@@ -1121,6 +1190,7 @@ export default function App() {
               partners: nextPartners,
               speciesData: nextSpecies,
               snsFeeds: nextFeeds,
+              geminiKey: activeSb.geminiKey || '',
             },
             updated_at: new Date().toISOString(),
           }),
@@ -1155,6 +1225,7 @@ export default function App() {
     const trimmed = {
       url: supabaseForm.url.trim(),
       anonKey: supabaseForm.anonKey.trim(),
+      geminiKey: (supabaseForm.geminiKey || '').trim(),
     };
     setSupabaseConfig(trimmed);
     localStorage.setItem(`${appId}_supabase`, JSON.stringify(trimmed));
@@ -1163,11 +1234,22 @@ export default function App() {
     if (trimmed.url && trimmed.anonKey) {
       await fetchFromSupabase(trimmed.url, trimmed.anonKey);
       await persistDashboardState({ supabaseConfig: trimmed });
-      showToast('PC·모바일 클라우드 DB(Supabase)가 성공적으로 연결되었습니다!');
+      showToast('클라우드 DB 및 AI API 설정이 저장되었습니다!');
     } else {
       setSyncStatus('브라우저 자동 저장됨');
-      showToast('클라우드 연결이 해제되고 로컬 저장 모드로 전환되었습니다.');
+      showToast(
+        trimmed.geminiKey
+          ? 'Google Gemini AI 키가 저장되었습니다! 이제 실제 홈페이지에서도 AI 검색이 작동합니다.'
+          : '설정이 저장되었습니다.'
+      );
     }
+  };
+
+  const handleResetSpeciesToDefault = async () => {
+    setSpeciesData(INITIAL_SPECIES_DATA);
+    setSelectedSpecies('삼치');
+    await persistDashboardState({ speciesData: INITIAL_SPECIES_DATA });
+    showToast('위판장 판매 어종이 기본 4종(삼치·금태·고등어·전갱이)으로 초기화되었습니다.');
   };
 
   const handleLockScreen = () => {
@@ -1243,21 +1325,26 @@ export default function App() {
     }
 
     setIsSearchingSpecies(true);
-    const fetched = await fetchSpeciesAuctionTrend(keyword);
+    const res = await fetchSpeciesAuctionTrend(keyword, supabaseConfig.geminiKey);
     setIsSearchingSpecies(false);
 
-    if (fetched) {
+    if (res && res.data) {
       const nextSpeciesData = {
         ...speciesData,
-        [fetched.name]: fetched,
+        [res.data.name]: res.data,
       };
       setSpeciesData(nextSpeciesData);
-      setSelectedSpecies(fetched.name);
+      setSelectedSpecies(res.data.name);
       setSpeciesSearchInput('');
       persistDashboardState({ speciesData: nextSpeciesData });
-      showToast(`'${fetched.name}' 위판장 시세 및 가격 추이가 추가되었습니다!`);
-    } else {
-      showToast(`'${keyword}' 위판 시세를 불러오지 못했습니다. 어종명을 다시 확인해 주세요.`);
+
+      if (res.isFallback) {
+        showToast(
+          `'${res.data.name}' 탭이 추가되었습니다! (실시간 AI 시세 자동 조회는 상단 [동기화 설정]에 Gemini API 키 입력 시 활성화됩니다)`
+        );
+      } else {
+        showToast(`'${res.data.name}' 전국 위판장 시세 및 가격 추이가 추가되었습니다!`);
+      }
     }
   };
 
@@ -1356,7 +1443,7 @@ export default function App() {
     if (searchingPartnerIds[partner.id]) return;
     setSearchingPartnerIds((prev) => ({ ...prev, [partner.id]: true }));
 
-    const result = await searchPartnerWebAndMenus(partner);
+    const result = await searchPartnerWebAndMenus(partner, supabaseConfig.geminiKey);
     const hasFoundMenus = result.menus && result.menus.length > 0;
     const top5StarMenu = result.topReviewMenu || (hasFoundMenus ? result.menus[0] : '');
 
@@ -1420,13 +1507,11 @@ export default function App() {
       let rows = [];
 
       if (lowerName.endsWith('.xlsx')) {
-        // 1순위: 외부 스크립트 없이 브라우저 자체 엔진으로 .xlsx 즉시 해독 (미리보기 환경에서도 100% 작동)
         const buffer = await file.arrayBuffer();
         rows = await parseXlsxNatively(buffer);
       }
 
       if (rows.length === 0 && (lowerName.endsWith('.csv') || lowerName.endsWith('.txt'))) {
-        // 2순위: 자체 내장 CSV/TSV 파서
         const text = await file.text();
         const delimiter = text.includes('\t') ? '\t' : ',';
         rows = text
@@ -1453,7 +1538,6 @@ export default function App() {
       }
 
       if (rows.length === 0) {
-        // 3순위: 구형 .xls 파일 등을 위한 외부 XLSX 폴백
         const cdnUrls = [
           'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
           'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js',
@@ -1798,7 +1882,7 @@ export default function App() {
     const newPrice = Number(newAuctionForm.price);
     const prevAvg = speciesData[targetSpecies].currentAvg;
     const diffAmount = newPrice - prevAvg;
-    const diffRate = Number(((diffAmount / prevAvg) * 100).toFixed(1));
+    const diffRate = prevAvg > 0 ? Number(((diffAmount / prevAvg) * 100).toFixed(1)) : 0;
 
     const updatedHistory7d = [...speciesData[targetSpecies].history7d];
     updatedHistory7d[updatedHistory7d.length - 1] = {
@@ -1962,9 +2046,9 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-14">
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-700 animate-fade-in">
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-700 animate-fade-in max-w-md">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-          <span className="text-sm font-medium">{toastMessage}</span>
+          <span className="text-xs sm:text-sm font-medium leading-snug">{toastMessage}</span>
         </div>
       )}
 
@@ -1980,7 +2064,7 @@ export default function App() {
                   수산물 종합 유통·시세 대시보드
                 </h1>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                  v2.6 · 리뷰인기메뉴·어종추가검색판
+                  v2.7 · 실제사이트 AI·어종완전연동판
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -1992,7 +2076,7 @@ export default function App() {
                       ? 'text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100'
                       : 'text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100'
                   }`}
-                  title="PC와 모바일 간 실시간 데이터 동기화 설정"
+                  title="PC와 모바일 간 실시간 데이터 동기화 및 AI API 키 설정"
                 >
                   <Cloud className="w-3 h-3" />
                   {syncStatus}
@@ -2005,14 +2089,14 @@ export default function App() {
             <button
               onClick={() => setActiveModal('cloud')}
               className={`inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
-                supabaseConfig.url
+                supabaseConfig.url || supabaseConfig.geminiKey
                   ? 'text-sky-700 bg-sky-50 border-sky-200 hover:bg-sky-100'
                   : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
               }`}
-              title="PC·모바일 실시간 동기화(Supabase) 설정"
+              title="PC·모바일 실시간 동기화 및 AI API 키 설정"
             >
               <Database className="w-3.5 h-3.5 text-sky-600" />
-              <span className="hidden md:inline">동기화 설정</span>
+              <span className="hidden md:inline">동기화 · AI키 설정</span>
             </button>
             <button
               onClick={() => setActiveModal('excel')}
@@ -2244,7 +2328,7 @@ export default function App() {
               <span className="text-xs font-medium text-slate-500">전일 위판가 대비</span>
             </div>
             <p className="text-xs text-slate-500 mt-1.5">
-              대방어(+8.4%) · 은갈치(+5.6%) 강세 지속
+              삼치(+6.2%) · 금태(+4.5%) 강세 지속
             </p>
           </div>
 
@@ -2290,11 +2374,19 @@ export default function App() {
         <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <BarChart3 className="w-5 h-5 text-sky-600" />
                 <h2 className="text-lg font-bold text-slate-900">
                   위판장 판매 어종 및 가격 추이
                 </h2>
+                <button
+                  onClick={handleResetSpeciesToDefault}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-slate-500 hover:text-sky-700 bg-slate-100 hover:bg-sky-50 border border-slate-200 transition-colors cursor-pointer"
+                  title="기본 4종(삼치·금태·고등어·전갱이)으로 초기화"
+                >
+                  <RotateCcw className="w-3 h-3" />
+                  기본 4종 초기화
+                </button>
               </div>
               <p className="text-xs text-slate-500 mt-1">
                 기본 어종(삼치·금태·고등어·전갱이) 외 원하는 어종을 검색해 시세 추이를 추가할 수 있습니다.
@@ -2609,8 +2701,8 @@ export default function App() {
               <div className="mt-4 p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/70 flex items-start gap-2.5">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <p className="text-xs text-amber-900 leading-relaxed">
-                  <strong>매입 참고:</strong> 남해안 선망 어획량 변동으로 삼치(+6.2%)와 금태(+4.5%)
-                  산지 위판 시세가 강세를 보이고 있으니 당일 경매 물량을 우선 확인하세요.
+                  <strong>매입 참고:</strong> 상단 <strong>[위판 시세]</strong> 버튼을 누르면
+                  새로 추가한 어종의 당일 낙찰가와 물량도 직접 업데이트할 수 있습니다.
                 </p>
               </div>
             </div>
@@ -3345,12 +3437,12 @@ export default function App() {
 
       {activeModal === 'cloud' && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Database className="w-5 h-5 text-sky-600" />
                 <h3 className="text-base font-bold text-slate-900">
-                  PC · 모바일 실시간 클라우드 동기화 (Supabase)
+                  PC·모바일 실시간 동기화 및 AI 검색 키 설정
                 </h3>
               </div>
               <button
@@ -3361,37 +3453,64 @@ export default function App() {
               </button>
             </div>
 
-            <p className="text-xs text-slate-600 leading-relaxed">
-              무료 <strong>Supabase</strong> 프로젝트의 <strong>Project URL</strong>과{' '}
-              <strong>anon public Key</strong>를 입력해 두면, PC에서 올린 엑셀 목록과 AI 메뉴 서칭 결과가
-              스마트폰에서도 실시간으로 똑같이 동기화됩니다.
-            </p>
-
-            <form onSubmit={handleSaveSupabaseConfig} className="space-y-3">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Supabase Project URL
-                </label>
-                <input
-                  type="url"
-                  placeholder="예: https://abcdefghijklm.supabase.co"
-                  value={supabaseForm.url}
-                  onChange={(e) => setSupabaseForm({ ...supabaseForm, url: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Supabase Anon Public Key
-                </label>
+            <form onSubmit={handleSaveSupabaseConfig} className="space-y-3.5">
+              <div className="p-3.5 rounded-xl bg-sky-50/70 border border-sky-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-sky-900 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-sky-600" />
+                    Google Gemini API Key (실제 홈페이지 AI 시세·메뉴 서칭용)
+                  </label>
+                  <a
+                    href="https://aistudio.google.com/apikey"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[11px] font-bold text-sky-700 underline hover:text-sky-900"
+                  >
+                    무료 키 10초 발급받기 →
+                  </a>
+                </div>
                 <input
                   type="text"
-                  placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                  value={supabaseForm.anonKey}
-                  onChange={(e) => setSupabaseForm({ ...supabaseForm, anonKey: e.target.value })}
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                  placeholder="AIzaSy... 로 시작하는 무료 Gemini API 키 붙여넣기"
+                  value={supabaseForm.geminiKey}
+                  onChange={(e) => setSupabaseForm({ ...supabaseForm, geminiKey: e.target.value })}
+                  className="w-full px-3 py-2 text-xs bg-white border border-sky-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                 />
+                <p className="text-[11px] text-sky-800 leading-relaxed">
+                  * 개인 Vercel 홈페이지에서도 <strong>[어종 추가 시세 조회]</strong>와{' '}
+                  <strong>[네이버 5점 리뷰 메뉴 서칭]</strong>을 사용하려면 무료 키를 1회 입력해 주세요. (Supabase 연동 시 모바일에도 자동 공유됩니다)
+                </p>
+              </div>
+
+              <div className="space-y-2.5 pt-1">
+                <div className="text-xs font-bold text-slate-800">
+                  Supabase 클라우드 DB 연결 (PC · 스마트폰 실시간 공유)
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Supabase Project URL
+                  </label>
+                  <input
+                    type="url"
+                    placeholder="예: https://abcdefghijklm.supabase.co"
+                    value={supabaseForm.url}
+                    onChange={(e) => setSupabaseForm({ ...supabaseForm, url: e.target.value })}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Supabase Anon Public Key
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="sb_publishable_... 또는 eyJhbGciOiJIUzI1NiIs..."
+                    value={supabaseForm.anonKey}
+                    onChange={(e) => setSupabaseForm({ ...supabaseForm, anonKey: e.target.value })}
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
+                  />
+                </div>
               </div>
 
               <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
@@ -3427,7 +3546,7 @@ alter table seafood_state disable row level security;`}
                     type="submit"
                     className="px-4 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg cursor-pointer"
                   >
-                    연결 저장 및 즉시 동기화
+                    저장 및 즉시 동기화
                   </button>
                 </div>
               </div>
