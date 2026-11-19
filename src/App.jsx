@@ -985,6 +985,82 @@ async function fetchSpeciesAuctionTrend(speciesKeyword, geminiApiKey = '') {
   };
 }
 
+// YYYY-MM-DD HH:mm 형식 날짜 포맷터
+function formatDateTimeKST(date = new Date()) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+}
+
+// 8개 거래처 단위 배치로 네이버 메뉴·리뷰의 메인 원재료만 추출하는 AI 서치 함수
+async function searchBatchMainIngredients(batchPartners = [], geminiApiKey = '') {
+  const apiKey = (geminiApiKey || '').trim();
+  const apiUrl = apiKey
+    ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent'
+    : 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=';
+  const reqHeaders = { 'Content-Type': 'application/json' };
+  if (apiKey) {
+    // 최신 Google AI Studio AQ. 인증 키는 x-goog-api-key 헤더로 전송
+    reqHeaders['x-goog-api-key'] = apiKey;
+  }
+
+  const targetLines = batchPartners
+    .map((p, idx) => {
+      const q = buildRegionCompanyQuery(p.companyName, p.address);
+      return `${idx + 1}. 업체명: "${p.companyName}" (검색어: "${q}", 주소: "${p.address || '미기재'}")`;
+    })
+    .join('\n');
+
+  const userQuery = `아래 대한민국 식당/거래처들의 네이버 플레이스 메뉴판 및 방문자 리뷰를 Google 검색으로 확인하여, 각 업체에서 판매하는 대표 메뉴에 사용된 "메인 원재료(식재료/어종명)"만 추출해줘.
+
+[대상 거래처 목록]
+${targetLines}
+
+[엄격한 규칙]
+1. "금태구이", "삼치회", "고등어봉초밥", "광어초밥" 같은 음식명/조리명이 아니라, 반드시 표준화된 "메인 원재료명"(예: "금태", "삼치", "고등어", "전갱이", "광어", "연어", "참돔", "방어", "오징어", "갈치", "문어", "전복", "새우", "꽃게", "장어", "우럭", "소고기", "돼지고기", "닭고기" 등)으로만 변환해서 배열에 넣어줘.
+2. 검색 결과에서 업체나 메뉴·원재료가 명확히 확인되지 않으면 절대 추측하지 말고 반드시 빈 배열 [] 로 반환해줘.
+3. 확인 불가능한 재료나 모호한 표현("수산물", "해산물", "회", "생선", "모둠", "기타", "확인불가")은 포함하지 말고 생략해줘.
+4. 반드시 아래 순수 JSON 객체 형식만 출력해줘:
+{
+  "results": [
+    { "companyName": "업체명 그대로", "ingredients": ["메인재료1", "메인재료2"] }
+  ]
+}`;
+
+  const payload = {
+    contents: [{ parts: [{ text: userQuery }] }],
+    tools: [{ google_search: {} }],
+  };
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: reqHeaders,
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const result = await response.json();
+      const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (Array.isArray(parsed.results)) {
+          return parsed.results;
+        }
+      }
+      break;
+    } catch (err) {
+      if (attempt === 2) {
+        return [];
+      }
+      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+    }
+  }
+  return [];
+}
+
 const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
 
 export default function App() {
@@ -1030,6 +1106,17 @@ export default function App() {
   const [searchingPartnerIds, setSearchingPartnerIds] = useState({});
   const [isBatchSearching, setIsBatchSearching] = useState(false);
   const [selectedPartnerDetail, setSelectedPartnerDetail] = useState(null);
+
+  // [v3.1 신규] 전체 등록 거래처 인기 메인재료 TOP 5 (수동 서치 버튼 클릭 시에만 갱신)
+  const [topIngredientsState, setTopIngredientsState] = useState({
+    items: [],
+    updatedAt: '',
+    analyzedCount: 0,
+    confirmedCount: 0,
+    omittedCount: 0,
+  });
+  const [isSearchingTopIngredients, setIsSearchingTopIngredients] = useState(false);
+  const [topIngredientProgress, setTopIngredientProgress] = useState({ current: 0, total: 0 });
 
   const [snsFeeds, setSnsFeeds] = useState(INITIAL_SNS_FEEDS);
   const [isSyncingSns, setIsSyncingSns] = useState(false);
@@ -1095,6 +1182,7 @@ export default function App() {
       const localPartners = localStorage.getItem(`${appId}_partners`);
       const localSpecies = localStorage.getItem(`${appId}_species`);
       const localFeeds = localStorage.getItem(`${appId}_feeds`);
+      const localTopIngredients = localStorage.getItem(`${appId}_top_ingredients`);
       const localSb = localStorage.getItem(`${appId}_supabase`);
 
       if (localSb) {
@@ -1146,6 +1234,12 @@ export default function App() {
         }
       }
       if (localFeeds) setSnsFeeds(JSON.parse(localFeeds));
+      if (localTopIngredients) {
+        const parsedTop = JSON.parse(localTopIngredients);
+        if (parsedTop && Array.isArray(parsedTop.items)) {
+          setTopIngredientsState(parsedTop);
+        }
+      }
     } catch (e) {
       console.warn('로컬 저장소 불러오기 건너뜀:', e);
     }
@@ -1210,6 +1304,13 @@ export default function App() {
           setSnsFeeds(remote.snsFeeds);
           localStorage.setItem(`${appId}_feeds`, JSON.stringify(remote.snsFeeds));
         }
+        if (remote.topIngredients && Array.isArray(remote.topIngredients.items)) {
+          setTopIngredientsState(remote.topIngredients);
+          localStorage.setItem(
+            `${appId}_top_ingredients`,
+            JSON.stringify(remote.topIngredients)
+          );
+        }
       }
       setSyncStatus('PC·모바일 실시간 동기화됨');
     } catch (err) {
@@ -1223,6 +1324,8 @@ export default function App() {
     const nextPartners = overrides.partners !== undefined ? overrides.partners : partners;
     const nextSpecies = overrides.speciesData !== undefined ? overrides.speciesData : speciesData;
     const nextFeeds = overrides.snsFeeds !== undefined ? overrides.snsFeeds : snsFeeds;
+    const nextTopIngredients =
+      overrides.topIngredients !== undefined ? overrides.topIngredients : topIngredientsState;
     const activeSb = overrides.supabaseConfig || supabaseConfig;
 
     try {
@@ -1230,6 +1333,7 @@ export default function App() {
       localStorage.setItem(`${appId}_partners`, JSON.stringify(nextPartners));
       localStorage.setItem(`${appId}_species`, JSON.stringify(nextSpecies));
       localStorage.setItem(`${appId}_feeds`, JSON.stringify(nextFeeds));
+      localStorage.setItem(`${appId}_top_ingredients`, JSON.stringify(nextTopIngredients));
     } catch (e) {
       console.warn('로컬 저장 오류:', e);
     }
@@ -1253,6 +1357,7 @@ export default function App() {
               partners: nextPartners,
               speciesData: nextSpecies,
               snsFeeds: nextFeeds,
+              topIngredients: nextTopIngredients,
               geminiKey: activeSb.geminiKey || '',
             },
             updated_at: new Date().toISOString(),
@@ -1348,6 +1453,7 @@ export default function App() {
               partners,
               speciesData,
               snsFeeds,
+              topIngredients: topIngredientsState,
               geminiKey: cleanGeminiKey,
             },
             updated_at: new Date().toISOString(),
@@ -1481,13 +1587,22 @@ export default function App() {
   };
 
   const handleClearAllPartners = async () => {
+    const emptyTop = {
+      items: [],
+      updatedAt: '',
+      analyzedCount: 0,
+      confirmedCount: 0,
+      omittedCount: 0,
+    };
     setPartners([]);
     setSnsFeeds([]);
+    setTopIngredientsState(emptyTop);
     setSelectedPartnerDetail(null);
     setCurrentPage(1);
     await persistDashboardState({
       partners: [],
       snsFeeds: [],
+      topIngredients: emptyTop,
     });
     showToast('등록된 거래업체 목록이 모두 깨끗하게 비워졌습니다.');
   };
@@ -1536,31 +1651,122 @@ export default function App() {
     }
   };
 
-  const topSellingItems = useMemo(() => {
-    const grouped = {};
-    partners.forEach((p) => {
-      const itemKey = p.topReviewMenu || p.category || '기타 수산물';
-      if (!grouped[itemKey]) {
-        grouped[itemKey] = {
-          name: itemKey,
-          volume: 0,
-          unit: p.volumeUnit || '상자',
-          partnerCount: 0,
-        };
+  // [v3.1 신규] 버튼 클릭 시에만 등록 거래처 전체를 8개사씩 배치 서치해 메인 원재료 TOP 5 산출
+  const handleSearchTop5MainIngredients = async () => {
+    if (isSearchingTopIngredients) return;
+    if (partners.length === 0) {
+      showToast('먼저 엑셀 업로드나 업체 등록으로 거래처를 추가해 주세요.');
+      return;
+    }
+
+    setIsSearchingTopIngredients(true);
+    setTopIngredientProgress({ current: 0, total: partners.length });
+
+    const BATCH_SIZE = 8;
+    const ignoredTerms = new Set([
+      '',
+      '기타',
+      '수산물',
+      '해산물',
+      '생선',
+      '활어',
+      '회',
+      '모둠',
+      '모듬',
+      '확인불가',
+      '미확인',
+      '없음',
+      '알수없음',
+      '미상',
+    ]);
+
+    const ingredientPartnerMap = {};
+    let confirmedCount = 0;
+    let omittedCount = 0;
+
+    try {
+      for (let i = 0; i < partners.length; i += BATCH_SIZE) {
+        const batch = partners.slice(i, i + BATCH_SIZE);
+        const batchResults = await searchBatchMainIngredients(batch, supabaseConfig.geminiKey);
+
+        const resultLookup = new Map();
+        batchResults.forEach((r) => {
+          if (r && r.companyName) {
+            resultLookup.set(String(r.companyName).trim(), r.ingredients);
+          }
+        });
+
+        batch.forEach((partner) => {
+          const nameKey = String(partner.companyName || '').trim();
+          const rawIngredients = resultLookup.get(nameKey);
+          const validIngredients = Array.isArray(rawIngredients)
+            ? Array.from(
+                new Set(
+                  rawIngredients
+                    .map((ing) => String(ing || '').trim())
+                    .filter((ing) => ing.length > 0 && !ignoredTerms.has(ing.replace(/\s+/g, '')))
+                )
+              )
+            : [];
+
+          if (validIngredients.length > 0) {
+            confirmedCount += 1;
+            validIngredients.forEach((ing) => {
+              if (!ingredientPartnerMap[ing]) {
+                ingredientPartnerMap[ing] = new Set();
+              }
+              ingredientPartnerMap[ing].add(nameKey);
+            });
+          } else {
+            omittedCount += 1;
+          }
+        });
+
+        setTopIngredientProgress({
+          current: Math.min(i + BATCH_SIZE, partners.length),
+          total: partners.length,
+        });
+
+        if (i + BATCH_SIZE < partners.length) {
+          await new Promise((r) => setTimeout(r, 250));
+        }
       }
-      grouped[itemKey].volume += Number(p.totalVolume) || 0;
-      grouped[itemKey].partnerCount += 1;
-    });
 
-    const list = Object.values(grouped).sort((a, b) => b.volume - a.volume);
-    const totalAll = list.reduce((acc, item) => acc + item.volume, 0) || 1;
+      const sorted = Object.entries(ingredientPartnerMap)
+        .map(([name, partnerSet]) => ({
+          name,
+          count: partnerSet.size,
+          partnerNames: Array.from(partnerSet),
+        }))
+        .sort((a, b) => b.count - a.count);
 
-    return list.slice(0, 5).map((item, idx) => ({
-      ...item,
-      rank: idx + 1,
-      share: ((item.volume / totalAll) * 100).toFixed(1),
-    }));
-  }, [partners]);
+      const totalCountAll = sorted.reduce((acc, item) => acc + item.count, 0) || 1;
+      const top5Items = sorted.slice(0, 5).map((item, idx) => ({
+        ...item,
+        rank: idx + 1,
+        share: ((item.count / totalCountAll) * 100).toFixed(1),
+      }));
+
+      const nextTopState = {
+        items: top5Items,
+        updatedAt: formatDateTimeKST(new Date()),
+        analyzedCount: partners.length,
+        confirmedCount,
+        omittedCount,
+      };
+
+      setTopIngredientsState(nextTopState);
+      await persistDashboardState({ topIngredients: nextTopState });
+      showToast(
+        `메인재료 TOP 5 갱신 완료! (전체 ${partners.length}개사 중 확인 ${confirmedCount}개사 · 생략 ${omittedCount}개사)`
+      );
+    } catch (err) {
+      console.error('메인재료 TOP 5 서치 오류:', err);
+      showToast('메인재료 서치 중 일부 오류가 발생했습니다. API 키 설정을 확인해 주세요.');
+    } finally {
+      setIsSearchingTopIngredients(false);
+    }
+  };
 
   const availableRegions = useMemo(() => {
     const set = new Set();
@@ -1607,7 +1813,8 @@ export default function App() {
   }, [filteredPartners, currentPage, totalPages]);
 
   const kpiSummary = useMemo(() => {
-    const topItem = topSellingItems[0] || { name: '데이터 대기', volume: 0, unit: '상자', share: '0' };
+    const topItem =
+      topIngredientsState.items[0] || { name: '서치 대기', count: 0, share: '0' };
     const allSpecies = Object.values(speciesData);
     const avgChange = (
       allSpecies.reduce((acc, s) => acc + s.prevDiffRate, 0) / allSpecies.length
@@ -1625,8 +1832,7 @@ export default function App() {
       activePartnerCount,
       totalWeeklyVolume,
     };
-  }, [topSellingItems, speciesData, partners]);
-
+  }, [topIngredientsState, speciesData, partners]);
   const handleSearchSinglePartnerMenu = async (partner) => {
     if (searchingPartnerIds[partner.id]) return;
     setSearchingPartnerIds((prev) => ({ ...prev, [partner.id]: true }));
@@ -2130,7 +2336,7 @@ export default function App() {
               )}
             </div>
             <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white/15 text-sky-100 border border-white/20 mb-2">
-              v3.0 · 마스터 PIN 보안 강화판
+              v3.1 · 메인재료 TOP5·보안강화판
             </div>
             <h1 className="text-xl font-bold tracking-tight">수산물 종합 유통·시세 대시보드</h1>
             <p className="text-xs text-sky-100 mt-1">
@@ -2277,7 +2483,7 @@ export default function App() {
                   수산물 종합 유통·시세 대시보드
                 </h1>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                  v3.0 · 마스터 PIN 보안 강화판
+                  v3.1 · 메인재료 TOP5·보안강화판
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -2514,19 +2720,23 @@ export default function App() {
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-500">최고 거래 인기 품목</span>
+              <span className="text-xs font-semibold text-slate-500">최고 인기 메인재료 TOP 1</span>
               <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
                 <Package className="w-4 h-4" />
               </div>
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold text-slate-900">{kpiSummary.topItem.name}</span>
-              <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                점유율 {kpiSummary.topItem.share}%
-              </span>
+              {topIngredientsState.items.length > 0 && (
+                <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                  비중 {kpiSummary.topItem.share}%
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-500 mt-1.5">
-              삼치(+6.2%) · 금태(+4.5%) · 전갱이(+3.1%) 추이 반영
+              {topIngredientsState.updatedAt
+                ? `확인 ${topIngredientsState.confirmedCount}개사 중 ${kpiSummary.topItem.count}개사 사용 (${topIngredientsState.updatedAt})`
+                : '하단 [TOP 5 메인재료 서치] 버튼 클릭 시 갱신'}
             </p>
           </div>
 
@@ -3098,34 +3308,121 @@ export default function App() {
 
         <section className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 pb-4 border-b border-slate-100">
               <div>
-                <h2 className="text-base font-bold text-slate-900">
-                  전체 등록 거래처 인기 판매 품목 TOP 5
-                </h2>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  인스타·네이버·구글 모두 <strong>[제일 큰 소재지 + 업체명]</strong>으로 검색되며, 주소 아래 주력 상품은 <strong>네이버 5점 리뷰 최다 언급 메뉴</strong>가 표시됩니다.
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h2 className="text-base font-bold text-slate-900">
+                    전체 등록 거래처 인기 메인재료 TOP 5
+                  </h2>
+                  {topIngredientsState.updatedAt ? (
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      <CheckCircle2 className="w-3 h-3" />
+                      갱신: {topIngredientsState.updatedAt}
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                      갱신 이력 없음
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-1">
+                  등록 거래처의 네이버 메뉴·리뷰에서 음식명이 아닌 <strong>메인 원재료</strong>만 AI 서치해 빈도 TOP 5를 산출합니다. (버튼 클릭 시에만 갱신 · 확인 불가 재료 생략)
                 </p>
               </div>
+
+              <button
+                onClick={handleSearchTop5MainIngredients}
+                disabled={isSearchingTopIngredients || partners.length === 0}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-700 text-white shadow-xs transition-colors cursor-pointer disabled:opacity-50 self-start md:self-auto shrink-0"
+              >
+                {isSearchingTopIngredients ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    메인재료 서치 중...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    TOP 5 메인재료 서치
+                  </>
+                )}
+              </button>
             </div>
 
+            {isSearchingTopIngredients && (
+              <div className="mb-4 p-3.5 rounded-xl bg-sky-50 border border-sky-200 space-y-2">
+                <div className="flex items-center justify-between text-xs font-bold text-sky-900">
+                  <span className="flex items-center gap-1.5">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" />
+                    {topIngredientProgress.current} / {topIngredientProgress.total}개 업체 메인재료 분석 중... (8개사씩 배치 최적화)
+                  </span>
+                  <span>
+                    {topIngredientProgress.total > 0
+                      ? Math.round(
+                          (topIngredientProgress.current / topIngredientProgress.total) * 100
+                        )
+                      : 0}
+                    %
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-sky-200/70 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-sky-600 rounded-full transition-all duration-300"
+                    style={{
+                      width: `${
+                        topIngredientProgress.total > 0
+                          ? Math.round(
+                              (topIngredientProgress.current / topIngredientProgress.total) * 100
+                            )
+                          : 0
+                      }%`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {topIngredientsState.updatedAt && !isSearchingTopIngredients && (
+              <div className="mb-4 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
+                <span>
+                  분석 요약: <strong>전체 {topIngredientsState.analyzedCount}개사</strong> 중{' '}
+                  <strong className="text-emerald-700">
+                    확인 {topIngredientsState.confirmedCount}개사
+                  </strong>{' '}
+                  ·{' '}
+                  <strong className="text-slate-500">
+                    확인 불가 {topIngredientsState.omittedCount}개사 생략
+                  </strong>
+                </span>
+                <span className="text-[11px] text-slate-400">
+                  PC·모바일 클라우드 자동 동기화됨
+                </span>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-              <div className="lg:col-span-5 h-48 bg-slate-50/70 rounded-xl border border-slate-100 p-3.5 flex flex-col justify-center">
-                {topSellingItems.length === 0 ? (
-                  <div className="text-center text-xs text-slate-400">
-                    엑셀 파일을 업로드하면 품목별 출고 비중 그래프가 표시됩니다.
+              <div className="lg:col-span-5 h-52 bg-slate-50/70 rounded-xl border border-slate-100 p-3.5 flex flex-col justify-center">
+                {topIngredientsState.items.length === 0 ? (
+                  <div className="text-center space-y-2 px-4">
+                    <Sparkles className="w-7 h-7 text-sky-500 mx-auto opacity-80" />
+                    <div className="text-xs font-bold text-slate-700">
+                      아직 메인재료 TOP 5 서치가 실행되지 않았습니다
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      우측 상단 <strong>[TOP 5 메인재료 서치]</strong> 버튼을 누르시면 등록된 거래처의 네이버 메뉴·리뷰를 분석해 원재료 TOP 5를 산출합니다.
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-2.5">
                     {(() => {
-                      const maxVol = Math.max(
+                      const maxCnt = Math.max(
                         1,
-                        ...topSellingItems.map((it) => Number(it.volume) || 0)
+                        ...topIngredientsState.items.map((it) => Number(it.count) || 0)
                       );
-                      return topSellingItems.map((item, idx) => {
+                      return topIngredientsState.items.map((item, idx) => {
                         const pct = Math.min(
                           100,
-                          Math.round(((Number(item.volume) || 0) / maxVol) * 100)
+                          Math.round(((Number(item.count) || 0) / maxCnt) * 100)
                         );
                         const barColor =
                           idx === 0
@@ -3140,7 +3437,7 @@ export default function App() {
                             <div className="flex items-center justify-between text-xs">
                               <span className="font-bold text-slate-700">{item.name}</span>
                               <span className="text-[11px] font-semibold text-slate-500">
-                                {formatNumber(item.volume)} {item.unit} ({item.share}%)
+                                {formatNumber(item.count)}개사 ({item.share}%)
                               </span>
                             </div>
                             <div className="w-full h-2.5 bg-slate-200/80 rounded-full overflow-hidden">
@@ -3158,35 +3455,47 @@ export default function App() {
               </div>
 
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                {topSellingItems.map((item) => (
-                  <div
-                    key={item.name}
-                    className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex flex-col justify-between"
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold ${
-                            item.rank === 1
-                              ? 'bg-sky-600 text-white'
-                              : item.rank === 2
-                              ? 'bg-sky-100 text-sky-800'
-                              : 'bg-slate-200 text-slate-700'
-                          }`}
-                        >
-                          {item.rank}
-                        </span>
-                        <span className="font-bold text-sm text-slate-800">{item.name}</span>
-                      </div>
-                      <span className="text-[11px] font-bold text-sky-700 bg-sky-100/70 px-1.5 py-0.5 rounded">
-                        {item.share}%
-                      </span>
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      취급처 {item.partnerCount}개사 · {formatNumber(item.volume)} {item.unit}
-                    </div>
+                {topIngredientsState.items.length === 0 ? (
+                  <div className="sm:col-span-2 md:col-span-3 p-6 rounded-xl border border-dashed border-slate-200 bg-slate-50/40 text-center text-xs text-slate-400">
+                    서치 완료 시 상위 5개 메인 원재료와 취급 거래처 수가 이곳에 카드 형태로 정리됩니다.
                   </div>
-                ))}
+                ) : (
+                  topIngredientsState.items.map((item) => (
+                    <div
+                      key={item.name}
+                      className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 flex flex-col justify-between gap-2"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold ${
+                              item.rank === 1
+                                ? 'bg-sky-600 text-white'
+                                : item.rank === 2
+                                ? 'bg-sky-100 text-sky-800'
+                                : 'bg-slate-200 text-slate-700'
+                            }`}
+                          >
+                            {item.rank}
+                          </span>
+                          <span className="font-bold text-sm text-slate-800">{item.name}</span>
+                        </div>
+                        <span className="text-[11px] font-bold text-sky-700 bg-sky-100/70 px-1.5 py-0.5 rounded">
+                          {item.share}%
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-600 font-medium">
+                        확인 거래처 <strong>{item.count}개사</strong>
+                      </div>
+                      {Array.isArray(item.partnerNames) && item.partnerNames.length > 0 && (
+                        <div className="text-[11px] text-slate-400 truncate">
+                          예: {item.partnerNames.slice(0, 2).join(', ')}
+                          {item.partnerNames.length > 2 ? ` 외 ${item.partnerNames.length - 2}곳` : ''}
+                        </div>
+                      )}
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           </div>
