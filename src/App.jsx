@@ -758,7 +758,14 @@ function parseSnsPostText(rawText = '') {
 
 async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
   const apiKey = (geminiApiKey || '').trim();
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+  const apiUrl = apiKey
+    ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent'
+    : 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=';
+  const reqHeaders = { 'Content-Type': 'application/json' };
+  if (apiKey) {
+    // 최신 Google AI Studio AQ. 인증 키는 x-goog-api-key 헤더로 전송해야 정상 작동
+    reqHeaders['x-goog-api-key'] = apiKey;
+  }
 
   const combinedQuery = buildRegionCompanyQuery(partner.companyName, partner.address);
   const tagKeyword = combinedQuery.replace(/\s+/g, '');
@@ -789,7 +796,7 @@ async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
     try {
       const response = await fetch(apiUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: reqHeaders,
         body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -839,7 +846,14 @@ async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
 
 async function fetchSpeciesAuctionTrend(speciesKeyword, geminiApiKey = '') {
   const apiKey = (geminiApiKey || '').trim();
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+  const apiUrl = apiKey
+    ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent'
+    : 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=';
+  const reqHeaders = { 'Content-Type': 'application/json' };
+  if (apiKey) {
+    // 최신 Google AI Studio AQ. 인증 키는 x-goog-api-key 헤더로 전송해야 정상 작동
+    reqHeaders['x-goog-api-key'] = apiKey;
+  }
 
   const cleanName = String(speciesKeyword || '').trim();
   const userQuery = `대한민국 수협 위판장(부산공동어시장, 통영수협, 여수수협, 제주한림수협, 속초수협 등)에서 거래되는 수산물 어종 "${cleanName}"의 최근 도매 위판 시세(낙찰가)와 주요 위판장별 시세를 검색해서 JSON으로 정리해줘.
@@ -882,7 +896,7 @@ async function fetchSpeciesAuctionTrend(speciesKeyword, geminiApiKey = '') {
     try {
       const response = await fetch(apiUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: reqHeaders,
         body: JSON.stringify(payload),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -977,6 +991,8 @@ export default function App() {
     anonKey: DEFAULT_SUPABASE_ANON_KEY,
     geminiKey: '',
   });
+  const [diagResults, setDiagResults] = useState(null);
+  const [isRunningDiag, setIsRunningDiag] = useState(false);
 
   const [savedPin, setSavedPin] = useState(null);
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -1229,21 +1245,141 @@ export default function App() {
         return;
       } catch (err) {
         const msg = String(err?.message || '');
-        if (msg.includes('404') || msg.includes('PGRST205') || msg.includes('seafood_state')) {
-          setSyncStatus('API 캐시 갱신 필요 (10초 후 재시도)');
-          showToast('Supabase 새 테이블 반영 중입니다. 10초 뒤 [동기화 설정]에서 다시 저장해 주세요!');
+        if (
+          msg.includes('42501') ||
+          msg.includes('row-level security') ||
+          msg.includes('permission denied')
+        ) {
+          setSyncStatus('RLS/권한 차단 (SQL 재실행 필요)');
+          showToast(
+            'Supabase 보안 잠금(RLS) 또는 권한 오류입니다. SQL Editor에서 Run without RLS로 실행해 주세요.'
+          );
+        } else if (msg.includes('404') || msg.includes('PGRST205')) {
+          setSyncStatus('테이블 미노출 (Exposed tables 확인)');
+          showToast(
+            'Supabase Data API > Settings > Exposed tables에 seafood_state가 체크되어 있는지 확인해 주세요.'
+          );
         } else if (msg.includes('401') || msg.includes('403') || msg.includes('Invalid API key')) {
           setSyncStatus('API 키 오류 (키 다시 확인)');
-          showToast('Supabase API Keys에서 Publishable 또는 anon public 키를 다시 복사해 넣어주세요.');
+          showToast('Supabase API Keys에서 anon public 키를 다시 복사해 넣어주세요.');
         } else {
-          setSyncStatus(`연결 오류 (${msg.slice(0, 28)})`);
-          showToast(`클라우드 연결 응답: ${msg.slice(0, 60)}`);
+          setSyncStatus(`연결 오류 (${msg.slice(0, 32)})`);
+          showToast(`클라우드 연결 응답: ${msg.slice(0, 80)}`);
         }
         return;
       }
     }
 
     setSyncStatus('브라우저 자동 저장됨');
+  };
+
+  // Supabase 읽기/쓰기 및 최신 AQ. Gemini API 키 자체 연결 진단 테스트
+  const handleRunConnectionDiagnostics = async () => {
+    setIsRunningDiag(true);
+    const cleanUrl = (supabaseForm.url || '')
+      .trim()
+      .replace(/\/rest\/v1\/?$/i, '')
+      .replace(/\/$/, '');
+    const cleanSbKey = (supabaseForm.anonKey || '').trim();
+    const cleanGeminiKey = (supabaseForm.geminiKey || '').trim();
+
+    const results = {
+      sbRead: { ok: false, detail: '미실행' },
+      sbWrite: { ok: false, detail: '미실행' },
+      gemini: { ok: false, detail: '미실행' },
+    };
+
+    const sbHeaders = {
+      apikey: cleanSbKey,
+      Accept: 'application/json',
+    };
+    if (cleanSbKey.startsWith('eyJ')) {
+      sbHeaders.Authorization = `Bearer ${cleanSbKey}`;
+    }
+
+    // 1. Supabase 읽기 테스트
+    if (!cleanUrl || !cleanSbKey) {
+      results.sbRead = { ok: false, detail: 'URL 또는 Anon Key가 비어 있습니다.' };
+    } else {
+      try {
+        const res = await fetch(
+          `${cleanUrl}/rest/v1/seafood_state?id=eq.main&select=id,updated_at`,
+          { headers: sbHeaders }
+        );
+        const text = await res.text().catch(() => '');
+        if (res.ok) {
+          results.sbRead = { ok: true, detail: `HTTP ${res.status} 정상 (데이터 조회 성공)` };
+        } else {
+          results.sbRead = { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 120)}` };
+        }
+      } catch (e) {
+        results.sbRead = { ok: false, detail: `네트워크 차단/오류: ${e.message}` };
+      }
+    }
+
+    // 2. Supabase 쓰기 테스트
+    if (!cleanUrl || !cleanSbKey) {
+      results.sbWrite = { ok: false, detail: 'URL 또는 Anon Key가 비어 있습니다.' };
+    } else {
+      try {
+        const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?on_conflict=id`, {
+          method: 'POST',
+          headers: {
+            ...sbHeaders,
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=merge-duplicates,return=minimal',
+          },
+          body: JSON.stringify({
+            id: 'main',
+            payload: {
+              pin: savedPin,
+              partners,
+              speciesData,
+              snsFeeds,
+              geminiKey: cleanGeminiKey,
+            },
+            updated_at: new Date().toISOString(),
+          }),
+        });
+        const text = await res.text().catch(() => '');
+        if (res.ok) {
+          results.sbWrite = { ok: true, detail: `HTTP ${res.status} 정상 (클라우드 저장 성공)` };
+          setSyncStatus('PC·모바일 실시간 동기화됨');
+        } else {
+          results.sbWrite = { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 140)}` };
+        }
+      } catch (e) {
+        results.sbWrite = { ok: false, detail: `네트워크 차단/오류: ${e.message}` };
+      }
+    }
+
+    // 3. Gemini API 키 (신규 AQ. 키 및 기존 AIza 키) 테스트
+    if (!cleanGeminiKey) {
+      results.gemini = { ok: false, detail: 'Gemini API 키가 입력되지 않았습니다.' };
+    } else {
+      try {
+        const res = await fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1',
+          {
+            headers: { 'x-goog-api-key': cleanGeminiKey },
+          }
+        );
+        const text = await res.text().catch(() => '');
+        if (res.ok) {
+          results.gemini = {
+            ok: true,
+            detail: `HTTP ${res.status} 정상 (${cleanGeminiKey.startsWith('AQ.') ? '신규 AQ. 인증키' : '표준키'} 연결 확인)`,
+          };
+        } else {
+          results.gemini = { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 140)}` };
+        }
+      } catch (e) {
+        results.gemini = { ok: false, detail: `네트워크 차단/오류: ${e.message}` };
+      }
+    }
+
+    setDiagResults(results);
+    setIsRunningDiag(false);
   };
 
   const handleSaveSupabaseConfig = async (e) => {
@@ -2090,7 +2226,7 @@ export default function App() {
                   수산물 종합 유통·시세 대시보드
                 </h1>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                  v2.8 · 전용 클라우드 자동연결판
+                  v2.9 · AQ신규키·자체연결진단판
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -3053,7 +3189,7 @@ export default function App() {
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="업체명, 대표자, 전화번호, 주소, 판매 메뉴 검색..."
+                  placeholder="업체명, 대표자, 전화번호, 주소, 5점 리뷰 인기 메뉴 검색..."
                   value={searchQuery}
                   onChange={(e) => {
                     setSearchQuery(e.target.value);
@@ -3481,30 +3617,32 @@ export default function App() {
 
             <form onSubmit={handleSaveSupabaseConfig} className="space-y-3.5">
               <div className="p-3.5 rounded-xl bg-sky-50/70 border border-sky-200 space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-2">
                   <label className="text-xs font-bold text-sky-900 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-sky-600" />
+                    <Sparkles className="w-3.5 h-3.5 text-sky-600 shrink-0" />
                     Google Gemini API Key (실제 홈페이지 AI 시세·메뉴 서칭용)
                   </label>
                   <a
                     href="https://aistudio.google.com/apikey"
                     target="_blank"
                     rel="noreferrer"
-                    className="text-[11px] font-bold text-sky-700 underline hover:text-sky-900"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-700 hover:underline shrink-0"
                   >
-                    무료 키 10초 발급받기 →
+                    무료 키 10초 발급받기
+                    <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
                 <input
                   type="text"
-                  placeholder="AIzaSy... 로 시작하는 무료 Gemini API 키 붙여넣기"
+                  placeholder="AQ. 로 시작하는 Google AI Studio API 키 붙여넣기"
                   value={supabaseForm.geminiKey}
-                  onChange={(e) => setSupabaseForm({ ...supabaseForm, geminiKey: e.target.value })}
+                  onChange={(e) =>
+                    setSupabaseForm({ ...supabaseForm, geminiKey: e.target.value })
+                  }
                   className="w-full px-3 py-2 text-xs bg-white border border-sky-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                 />
                 <p className="text-[11px] text-sky-800 leading-relaxed">
-                  * 개인 Vercel 홈페이지에서도 <strong>[어종 추가 시세 조회]</strong>와{' '}
-                  <strong>[네이버 5점 리뷰 메뉴 서칭]</strong>을 사용하려면 무료 키를 1회 입력해 주세요. (Supabase 연동 시 모바일에도 자동 공유됩니다)
+                  * 구글 최신 <strong>AQ. 인증 키</strong>(x-goog-api-key 헤더 방식)를 공식 지원합니다. 키 입력 후 아래 <strong>[연결 테스트 실행]</strong>으로 즉시 정상 여부를 확인하세요.
                 </p>
               </div>
 
@@ -3513,41 +3651,92 @@ export default function App() {
                   Supabase 클라우드 DB 연결 (PC · 스마트폰 실시간 공유)
                 </div>
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
                     Supabase Project URL
                   </label>
                   <input
-                    type="url"
-                    placeholder="예: https://abcdefghijklm.supabase.co"
+                    type="text"
+                    placeholder="https://xxxxx.supabase.co"
                     value={supabaseForm.url}
                     onChange={(e) => setSupabaseForm({ ...supabaseForm, url: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">
                     Supabase Anon Public Key
                   </label>
                   <input
                     type="text"
-                    placeholder="sb_publishable_... 또는 eyJhbGciOiJIUzI1NiIs..."
+                    placeholder="eyJhbGciOiJIUzI1NiIs..."
                     value={supabaseForm.anonKey}
-                    onChange={(e) => setSupabaseForm({ ...supabaseForm, anonKey: e.target.value })}
+                    onChange={(e) =>
+                      setSupabaseForm({ ...supabaseForm, anonKey: e.target.value })
+                    }
                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                   />
                 </div>
               </div>
 
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-1">
-                <div className="font-bold text-slate-800">Supabase SQL Editor 1회 실행 코드:</div>
+              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold text-slate-800">
+                    자체 연결 진단 테스트 (실제 서버 응답 확인)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleRunConnectionDiagnostics}
+                    disabled={isRunningDiag}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-50 cursor-pointer shrink-0"
+                  >
+                    {isRunningDiag ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3" />
+                    )}
+                    {isRunningDiag ? '진단 중...' : '연결 테스트 실행'}
+                  </button>
+                </div>
+
+                {diagResults && (
+                  <div className="space-y-1.5 pt-1 border-t border-slate-200">
+                    {[
+                      { label: '1. Supabase 읽기', res: diagResults.sbRead },
+                      { label: '2. Supabase 쓰기', res: diagResults.sbWrite },
+                      { label: '3. Gemini AI 키', res: diagResults.gemini },
+                    ].map((row) => (
+                      <div
+                        key={row.label}
+                        className={`p-2 rounded-lg border text-[11px] ${
+                          row.res.ok
+                            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                            : 'bg-rose-50 border-rose-200 text-rose-900'
+                        }`}
+                      >
+                        <div className="font-bold flex items-center justify-between">
+                          <span>{row.label}</span>
+                          <span>{row.res.ok ? '✅ 성공' : '❌ 실패'}</span>
+                        </div>
+                        <div className="mt-0.5 break-all opacity-90 font-mono text-[10px]">
+                          {row.res.detail}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="font-bold text-slate-800 pt-1">
+                  Supabase SQL Editor 1회 실행 코드 (반드시 Run without RLS 클릭):
+                </div>
                 <pre className="bg-slate-900 text-emerald-300 p-2 rounded-lg overflow-x-auto text-[10px]">
-{`create table if not exists seafood_state (
+{`create table if not exists public.seafood_state (
   id text primary key,
   payload jsonb not null,
   updated_at timestamptz default now()
 );
-alter table seafood_state disable row level security;`}
+alter table public.seafood_state disable row level security;
+grant all on table public.seafood_state to anon, authenticated;
+NOTIFY pgrst, 'reload schema';`}
                 </pre>
               </div>
 
