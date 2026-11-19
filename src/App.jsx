@@ -993,72 +993,144 @@ function formatDateTimeKST(date = new Date()) {
   )}:${pad(date.getMinutes())}`;
 }
 
-// 8개 거래처 단위 배치로 네이버 메뉴·리뷰의 메인 원재료만 추출하는 AI 서치 함수
+// 유연한 JSON 배열/객체 추출 파서 (마크다운 펜스, 후행 쉼표 등 자동 보정)
+function parseForgivingJsonResults(rawText = '') {
+  if (!rawText) return null;
+  const cleaned = String(rawText)
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/g, '')
+    .trim();
+
+  const tryParse = (str) => {
+    try {
+      const noTrailingComma = str.replace(/,\s*([}\]])/g, '$1');
+      return JSON.parse(noTrailingComma);
+    } catch (_) {
+      return null;
+    }
+  };
+
+  // 1) 배열 형태 우선 탐색 ([ ... ])
+  const firstBracket = cleaned.indexOf('[');
+  const lastBracket = cleaned.lastIndexOf(']');
+  if (firstBracket !== -1 && lastBracket > firstBracket) {
+    const arrParsed = tryParse(cleaned.slice(firstBracket, lastBracket + 1));
+    if (Array.isArray(arrParsed)) return arrParsed;
+  }
+
+  // 2) 객체 래핑 형태 탐색 ({ results: [...] } 등)
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+  if (firstBrace !== -1 && lastBrace > firstBrace) {
+    const objParsed = tryParse(cleaned.slice(firstBrace, lastBrace + 1));
+    if (objParsed) {
+      if (Array.isArray(objParsed.results)) return objParsed.results;
+      if (Array.isArray(objParsed.data)) return objParsed.data;
+      if (Array.isArray(objParsed.items)) return objParsed.items;
+    }
+  }
+
+  return null;
+}
+
+// 5개 거래처 단위 배치로 네이버 메뉴·리뷰의 메인 원재료만 추출하는 내결함성 AI 서치 함수
 async function searchBatchMainIngredients(batchPartners = [], geminiApiKey = '') {
   const apiKey = (geminiApiKey || '').trim();
-  const apiUrl = apiKey
-    ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent'
-    : 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=';
   const reqHeaders = { 'Content-Type': 'application/json' };
   if (apiKey) {
-    // 최신 Google AI Studio AQ. 인증 키는 x-goog-api-key 헤더로 전송
     reqHeaders['x-goog-api-key'] = apiKey;
   }
 
   const targetLines = batchPartners
     .map((p, idx) => {
-      const q = buildRegionCompanyQuery(p.companyName, p.address);
-      return `${idx + 1}. 업체명: "${p.companyName}" (검색어: "${q}", 주소: "${p.address || '미기재'}")`;
+      const region = extractTopRegion(p.address) || '전국';
+      const knownMenus = [
+        p.topReviewMenu,
+        ...(Array.isArray(p.searchedMenus) ? p.searchedMenus : []),
+      ]
+        .filter(Boolean)
+        .slice(0, 4)
+        .join(', ');
+      return `idx=${idx} | 업체명="${p.companyName}" | 지역="${region}"${
+        knownMenus ? ` | 기존확인메뉴="${knownMenus}"` : ''
+      }`;
     })
     .join('\n');
 
-  const userQuery = `아래 대한민국 식당/거래처들의 네이버 플레이스 메뉴판 및 방문자 리뷰를 Google 검색으로 확인하여, 각 업체에서 판매하는 대표 메뉴에 사용된 "메인 원재료(식재료/어종명)"만 추출해줘.
+  const userQuery = `아래 대한민국 식당/거래처들의 네이버 플레이스 메뉴판 및 방문자 리뷰를 Google 검색으로 확인하여, 각 업체 대표 메뉴에 사용된 "메인 원재료(식재료/어종명)"만 추출해줘.
 
 [대상 거래처 목록]
 ${targetLines}
 
-[엄격한 규칙]
-1. "금태구이", "삼치회", "고등어봉초밥", "광어초밥" 같은 음식명/조리명이 아니라, 반드시 표준화된 "메인 원재료명"(예: "금태", "삼치", "고등어", "전갱이", "광어", "연어", "참돔", "방어", "오징어", "갈치", "문어", "전복", "새우", "꽃게", "장어", "우럭", "소고기", "돼지고기", "닭고기" 등)으로만 변환해서 배열에 넣어줘.
-2. 검색 결과에서 업체나 메뉴·원재료가 명확히 확인되지 않으면 절대 추측하지 말고 반드시 빈 배열 [] 로 반환해줘.
-3. 확인 불가능한 재료나 모호한 표현("수산물", "해산물", "회", "생선", "모둠", "기타", "확인불가")은 포함하지 말고 생략해줘.
-4. 반드시 아래 순수 JSON 객체 형식만 출력해줘:
-{
-  "results": [
-    { "companyName": "업체명 그대로", "ingredients": ["메인재료1", "메인재료2"] }
-  ]
-}`;
+[필수 변환 규칙]
+1. 음식명/조리명이 아니라 반드시 표준화된 "메인 원재료명"으로 변환해줘.
+   예시: "삼치회"->"삼치", "금태구이"->"금태", "고등어봉초밥"->"고등어", "대방어회"->"방어", "갈치조림"->"갈치", "참돔유비끼"->"참돔", "오징어순대"->"오징어", "모둠활어회"->["광어","우럭"], "연어초밥"->"연어", "전복죽"->"전복", "장어구이"->"장어", "꽃게탕"->"꽃게", "소고기구이"->"소고기", "삼겹살"->"돼지고기"
+2. 기존확인메뉴가 있으면 함께 참고하되, 네이버 검색에서 업체나 메뉴·원재료가 확인되지 않으면 추측하지 말고 반드시 빈 배열 [] 로 반환해줘.
+3. "수산물", "해산물", "생선", "회", "모둠", "기타", "확인불가" 같은 모호한 표현은 절대 넣지 마.
+4. 다른 설명 없이 반드시 순수 JSON 배열만 출력해줘:
+[{"idx": 0, "companyName": "업체명", "ingredients": ["삼치", "금태"]}]`;
 
   const payload = {
     contents: [{ parts: [{ text: userQuery }] }],
     tools: [{ google_search: {} }],
   };
 
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: reqHeaders,
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const result = await response.json();
-      const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (Array.isArray(parsed.results)) {
-          return parsed.results;
+  // 1순위: gemini-3-flash-preview, 2순위 폴백: gemini-2.5-flash
+  const models = ['gemini-3-flash-preview', 'gemini-2.5-flash'];
+  let lastError = '';
+
+  for (const model of models) {
+    const apiUrl = apiKey
+      ? `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
+      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=`;
+
+    for (let retry = 0; retry < 2; retry++) {
+      try {
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: reqHeaders,
+          body: JSON.stringify(payload),
+        });
+
+        if (response.status === 429) {
+          const errText = await response.text().catch(() => '');
+          lastError = `HTTP 429 요청 한도 초과 (${model}): ${errText.slice(0, 90)}`;
+          if (retry === 0) {
+            await new Promise((r) => setTimeout(r, 1500));
+            continue;
+          }
+          break;
+        }
+
+        if (!response.ok) {
+          const errText = await response.text().catch(() => '');
+          lastError = `HTTP ${response.status} (${model}): ${errText.slice(0, 110)}`;
+          if ([400, 404, 500, 503].includes(response.status)) {
+            break;
+          }
+          return { ok: false, results: [], error: lastError };
+        }
+
+        const result = await response.json();
+        const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+        const parsedArray = parseForgivingJsonResults(rawText);
+
+        if (Array.isArray(parsedArray)) {
+          return { ok: true, results: parsedArray, error: '' };
+        }
+        lastError = `응답 JSON 파싱 실패 (${model})`;
+        break;
+      } catch (err) {
+        lastError = `네트워크 오류 (${model}): ${err.message}`;
+        if (retry === 0) {
+          await new Promise((r) => setTimeout(r, 800));
+          continue;
         }
       }
-      break;
-    } catch (err) {
-      if (attempt === 2) {
-        return [];
-      }
-      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
     }
   }
-  return [];
+
+  return { ok: false, results: [], error: lastError || '알 수 없는 API 오류가 발생했습니다.' };
 }
 
 const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
@@ -1107,16 +1179,23 @@ export default function App() {
   const [isBatchSearching, setIsBatchSearching] = useState(false);
   const [selectedPartnerDetail, setSelectedPartnerDetail] = useState(null);
 
-  // [v3.1 신규] 전체 등록 거래처 인기 메인재료 TOP 5 (수동 서치 버튼 클릭 시에만 갱신)
+  // [v3.2] 전체 등록 거래처 인기 메인재료 TOP 5 (확인 모달 통과 후에만 실행)
   const [topIngredientsState, setTopIngredientsState] = useState({
     items: [],
     updatedAt: '',
     analyzedCount: 0,
     confirmedCount: 0,
     omittedCount: 0,
+    errorSummary: '',
   });
   const [isSearchingTopIngredients, setIsSearchingTopIngredients] = useState(false);
-  const [topIngredientProgress, setTopIngredientProgress] = useState({ current: 0, total: 0 });
+  const [ingredientSearchProgress, setIngredientSearchProgress] = useState({
+    currentBatch: 0,
+    totalBatches: 0,
+    confirmedSoFar: 0,
+    failedBatches: 0,
+  });
+  const cancelIngredientSearchRef = useRef(false);
 
   const [snsFeeds, setSnsFeeds] = useState(INITIAL_SNS_FEEDS);
   const [isSyncingSns, setIsSyncingSns] = useState(false);
@@ -1593,6 +1672,7 @@ export default function App() {
       analyzedCount: 0,
       confirmedCount: 0,
       omittedCount: 0,
+      errorSummary: '',
     };
     setPartners([]);
     setSnsFeeds([]);
@@ -1651,18 +1731,25 @@ export default function App() {
     }
   };
 
-  // [v3.1 신규] 버튼 클릭 시에만 등록 거래처 전체를 8개사씩 배치 서치해 메인 원재료 TOP 5 산출
-  const handleSearchTop5MainIngredients = async () => {
+  // [v3.2 개선] 5개사씩 배치 서치 · 모델 폴백 · 429 재시도 · 중단 지원 · 오류 표시
+  const handleRunTopIngredientsSearch = async () => {
     if (isSearchingTopIngredients) return;
     if (partners.length === 0) {
       showToast('먼저 엑셀 업로드나 업체 등록으로 거래처를 추가해 주세요.');
       return;
     }
 
+    const BATCH_SIZE = 5;
+    const totalBatches = Math.ceil(partners.length / BATCH_SIZE);
+    cancelIngredientSearchRef.current = false;
     setIsSearchingTopIngredients(true);
-    setTopIngredientProgress({ current: 0, total: partners.length });
+    setIngredientSearchProgress({
+      currentBatch: 0,
+      totalBatches,
+      confirmedSoFar: 0,
+      failedBatches: 0,
+    });
 
-    const BATCH_SIZE = 8;
     const ignoredTerms = new Set([
       '',
       '기타',
@@ -1678,27 +1765,67 @@ export default function App() {
       '없음',
       '알수없음',
       '미상',
+      '식재료',
+      '메뉴',
     ]);
 
     const ingredientPartnerMap = {};
     let confirmedCount = 0;
     let omittedCount = 0;
+    let processedCount = 0;
+    let failedBatches = 0;
+    let lastErrorMsg = '';
+    let wasCancelled = false;
 
     try {
-      for (let i = 0; i < partners.length; i += BATCH_SIZE) {
-        const batch = partners.slice(i, i + BATCH_SIZE);
-        const batchResults = await searchBatchMainIngredients(batch, supabaseConfig.geminiKey);
+      for (let b = 0; b < totalBatches; b++) {
+        if (cancelIngredientSearchRef.current) {
+          wasCancelled = true;
+          break;
+        }
 
-        const resultLookup = new Map();
-        batchResults.forEach((r) => {
-          if (r && r.companyName) {
-            resultLookup.set(String(r.companyName).trim(), r.ingredients);
+        const startIdx = b * BATCH_SIZE;
+        const batch = partners.slice(startIdx, startIdx + BATCH_SIZE);
+        const batchRes = await searchBatchMainIngredients(batch, supabaseConfig.geminiKey);
+
+        if (!batchRes.ok) {
+          failedBatches += 1;
+          if (batchRes.error) lastErrorMsg = batchRes.error;
+        }
+
+        const resultsArr = Array.isArray(batchRes.results) ? batchRes.results : [];
+        const byIdx = new Map();
+        const byName = new Map();
+
+        resultsArr.forEach((r) => {
+          if (!r || typeof r !== 'object') return;
+          if (r.idx !== undefined && r.idx !== null && !Number.isNaN(Number(r.idx))) {
+            byIdx.set(Number(r.idx), r.ingredients);
+          }
+          if (r.companyName) {
+            const norm = String(r.companyName).replace(/\s+/g, '').toLowerCase();
+            byName.set(norm, r.ingredients);
           }
         });
 
-        batch.forEach((partner) => {
+        batch.forEach((partner, localIdx) => {
+          processedCount += 1;
           const nameKey = String(partner.companyName || '').trim();
-          const rawIngredients = resultLookup.get(nameKey);
+          const normName = nameKey.replace(/\s+/g, '').toLowerCase();
+
+          let rawIngredients = byIdx.has(localIdx) ? byIdx.get(localIdx) : byName.get(normName);
+
+          // 이름이 부분 일치하는 경우도 보조 매칭
+          if (!Array.isArray(rawIngredients)) {
+            for (const [k, v] of byName.entries()) {
+              if (k && normName && (k.includes(normName) || normName.includes(k))) {
+                rawIngredients = v;
+                break;
+              }
+            }
+          }
+
+          // 한 업체 내 동일 재료는 중복 제거(업체당 1회 집계)
           const validIngredients = Array.isArray(rawIngredients)
             ? Array.from(
                 new Set(
@@ -1722,13 +1849,15 @@ export default function App() {
           }
         });
 
-        setTopIngredientProgress({
-          current: Math.min(i + BATCH_SIZE, partners.length),
-          total: partners.length,
+        setIngredientSearchProgress({
+          currentBatch: b + 1,
+          totalBatches,
+          confirmedSoFar: confirmedCount,
+          failedBatches,
         });
 
-        if (i + BATCH_SIZE < partners.length) {
-          await new Promise((r) => setTimeout(r, 250));
+        if (b + 1 < totalBatches && !cancelIngredientSearchRef.current) {
+          await new Promise((r) => setTimeout(r, 350));
         }
       }
 
@@ -1740,29 +1869,52 @@ export default function App() {
         }))
         .sort((a, b) => b.count - a.count);
 
-      const totalCountAll = sorted.reduce((acc, item) => acc + item.count, 0) || 1;
       const top5Items = sorted.slice(0, 5).map((item, idx) => ({
         ...item,
         rank: idx + 1,
-        share: ((item.count / totalCountAll) * 100).toFixed(1),
+        share: confirmedCount > 0 ? ((item.count / confirmedCount) * 100).toFixed(1) : '0.0',
       }));
+
+      const errorSummary =
+        failedBatches > 0
+          ? `총 ${totalBatches}개 배치 중 ${failedBatches}개 배치 호출 실패 — 최근 응답: ${lastErrorMsg}`
+          : '';
 
       const nextTopState = {
         items: top5Items,
         updatedAt: formatDateTimeKST(new Date()),
-        analyzedCount: partners.length,
+        analyzedCount: processedCount,
         confirmedCount,
         omittedCount,
+        errorSummary,
       };
 
       setTopIngredientsState(nextTopState);
       await persistDashboardState({ topIngredients: nextTopState });
-      showToast(
-        `메인재료 TOP 5 갱신 완료! (전체 ${partners.length}개사 중 확인 ${confirmedCount}개사 · 생략 ${omittedCount}개사)`
-      );
+
+      if (wasCancelled) {
+        showToast(
+          `서치가 중지되었습니다. (${processedCount}/${partners.length}개사 부분 집계 완료 · 확인 ${confirmedCount}개사)`
+        );
+      } else if (confirmedCount === 0 && errorSummary) {
+        showToast('API 호출 오류로 메인재료를 가져오지 못했습니다. 하단 오류 내용을 확인해 주세요.');
+      } else {
+        showToast(
+          `메인재료 TOP 5 갱신 완료! (전체 ${processedCount}개사 중 확인 ${confirmedCount}개사 · 생략 ${omittedCount}개사)`
+        );
+      }
     } catch (err) {
       console.error('메인재료 TOP 5 서치 오류:', err);
-      showToast('메인재료 서치 중 일부 오류가 발생했습니다. API 키 설정을 확인해 주세요.');
+      const errState = {
+        ...topIngredientsState,
+        updatedAt: formatDateTimeKST(new Date()),
+        analyzedCount: processedCount,
+        confirmedCount,
+        omittedCount,
+        errorSummary: `예기치 않은 오류: ${err.message}`,
+      };
+      setTopIngredientsState(errState);
+      showToast(`메인재료 서치 중 오류 발생: ${err.message}`);
     } finally {
       setIsSearchingTopIngredients(false);
     }
@@ -1833,6 +1985,7 @@ export default function App() {
       totalWeeklyVolume,
     };
   }, [topIngredientsState, speciesData, partners]);
+
   const handleSearchSinglePartnerMenu = async (partner) => {
     if (searchingPartnerIds[partner.id]) return;
     setSearchingPartnerIds((prev) => ({ ...prev, [partner.id]: true }));
@@ -2336,7 +2489,7 @@ export default function App() {
               )}
             </div>
             <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white/15 text-sky-100 border border-white/20 mb-2">
-              v3.1 · 메인재료 TOP5·보안강화판
+              v3.2 · 메인재료 서치 수정·확인창판
             </div>
             <h1 className="text-xl font-bold tracking-tight">수산물 종합 유통·시세 대시보드</h1>
             <p className="text-xs text-sky-100 mt-1">
@@ -2483,7 +2636,7 @@ export default function App() {
                   수산물 종합 유통·시세 대시보드
                 </h1>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                  v3.1 · 메인재료 TOP5·보안강화판
+                  v3.2 · 메인재료 서치 수정·확인창판
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -2551,7 +2704,7 @@ export default function App() {
                 setPinConfirmInput('');
                 setPinError('');
               }}
-              title="마스터 PIN 비밀번호 변경"
+              title="개인 PIN 비밀번호 변경"
               className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
             >
               <KeyRound className="w-3.5 h-3.5" />
@@ -2570,6 +2723,7 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
+        {/* 1. Windy 실시간 해상 기상 섹션 */}
         <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="px-5 py-3.5 bg-gradient-to-r from-slate-900 via-sky-950 to-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -2717,26 +2871,25 @@ export default function App() {
           </div>
         </section>
 
+        {/* 2. 상단 KPI 요약 카드 4종 */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-500">최고 인기 메인재료 TOP 1</span>
+              <span className="text-xs font-semibold text-slate-500">최다 사용 메인 원재료 1위</span>
               <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
                 <Package className="w-4 h-4" />
               </div>
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold text-slate-900">{kpiSummary.topItem.name}</span>
-              {topIngredientsState.items.length > 0 && (
-                <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                  비중 {kpiSummary.topItem.share}%
-                </span>
-              )}
+              <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
+                비중 {kpiSummary.topItem.share}%
+              </span>
             </div>
             <p className="text-xs text-slate-500 mt-1.5">
               {topIngredientsState.updatedAt
-                ? `확인 ${topIngredientsState.confirmedCount}개사 중 ${kpiSummary.topItem.count}개사 사용 (${topIngredientsState.updatedAt})`
-                : '하단 [TOP 5 메인재료 서치] 버튼 클릭 시 갱신'}
+                ? `최근 갱신: ${topIngredientsState.updatedAt}`
+                : '하단 [TOP 5 메인재료 서치] 클릭 시 산출'}
             </p>
           </div>
 
@@ -2799,6 +2952,7 @@ export default function App() {
           </div>
         </section>
 
+        {/* 3. 위판장 판매 어종 및 가격 추이 섹션 */}
         <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
             <div>
@@ -3137,6 +3291,7 @@ export default function App() {
           </div>
         </section>
 
+        {/* 4. 등록 거래업체 SNS 자동 수집 및 AI 단가·입고 정리 섹션 */}
         <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
             <div>
@@ -3252,7 +3407,7 @@ export default function App() {
                 </div>
                 <p className="text-xs text-slate-500 leading-relaxed">
                   거래업체가 인스타그램에 올린 입항 공지글을 복사해 붙여넣으면 AI가 어종, 단가,
-                  입항량을 자동 추출하여 아래 거래업체 단가표와 인기 품목에 즉시 반영합니다.
+                  입항량을 자동 추출하여 아래 거래업체 단가표에 즉시 반영합니다.
                 </p>
 
                 <div>
@@ -3306,32 +3461,29 @@ export default function App() {
           </div>
         </section>
 
+        {/* 5. 전체 등록 거래처 인기 메인재료 TOP 5 & 거래처 관리 섹션 */}
         <section className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 pb-4 border-b border-slate-100">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
                   <h2 className="text-base font-bold text-slate-900">
                     전체 등록 거래처 인기 메인재료 TOP 5
                   </h2>
-                  {topIngredientsState.updatedAt ? (
+                  {topIngredientsState.updatedAt && (
                     <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                       <CheckCircle2 className="w-3 h-3" />
                       갱신: {topIngredientsState.updatedAt}
                     </span>
-                  ) : (
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
-                      갱신 이력 없음
-                    </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
+                <p className="text-xs text-slate-500 mt-0.5">
                   등록 거래처의 네이버 메뉴·리뷰에서 음식명이 아닌 <strong>메인 원재료</strong>만 AI 서치해 빈도 TOP 5를 산출합니다. (버튼 클릭 시에만 갱신 · 확인 불가 재료 생략)
                 </p>
               </div>
 
               <button
-                onClick={handleSearchTop5MainIngredients}
+                onClick={() => setActiveModal('confirmTopIngredients')}
                 disabled={isSearchingTopIngredients || partners.length === 0}
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-700 text-white shadow-xs transition-colors cursor-pointer disabled:opacity-50 self-start md:self-auto shrink-0"
               >
@@ -3351,34 +3503,74 @@ export default function App() {
 
             {isSearchingTopIngredients && (
               <div className="mb-4 p-3.5 rounded-xl bg-sky-50 border border-sky-200 space-y-2">
-                <div className="flex items-center justify-between text-xs font-bold text-sky-900">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-sky-900">
                   <span className="flex items-center gap-1.5">
                     <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" />
-                    {topIngredientProgress.current} / {topIngredientProgress.total}개 업체 메인재료 분석 중... (8개사씩 배치 최적화)
+                    배치 {ingredientSearchProgress.currentBatch} / {ingredientSearchProgress.totalBatches} 진행 중 (확인 {ingredientSearchProgress.confirmedSoFar}개사
+                    {ingredientSearchProgress.failedBatches > 0
+                      ? ` · 실패 배치 ${ingredientSearchProgress.failedBatches}`
+                      : ''}
+                    )
                   </span>
-                  <span>
-                    {topIngredientProgress.total > 0
-                      ? Math.round(
-                          (topIngredientProgress.current / topIngredientProgress.total) * 100
-                        )
-                      : 0}
-                    %
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span>
+                      {ingredientSearchProgress.totalBatches > 0
+                        ? Math.round(
+                            (ingredientSearchProgress.currentBatch /
+                              ingredientSearchProgress.totalBatches) *
+                              100
+                          )
+                        : 0}
+                      %
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        cancelIngredientSearchRef.current = true;
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold cursor-pointer"
+                    >
+                      중지
+                    </button>
+                  </div>
                 </div>
                 <div className="w-full h-2 bg-sky-200/70 rounded-full overflow-hidden">
                   <div
                     className="h-full bg-sky-600 rounded-full transition-all duration-300"
                     style={{
                       width: `${
-                        topIngredientProgress.total > 0
+                        ingredientSearchProgress.totalBatches > 0
                           ? Math.round(
-                              (topIngredientProgress.current / topIngredientProgress.total) * 100
+                              (ingredientSearchProgress.currentBatch /
+                                ingredientSearchProgress.totalBatches) *
+                                100
                             )
                           : 0
                       }%`,
                     }}
                   />
                 </div>
+              </div>
+            )}
+
+            {topIngredientsState.errorSummary && !isSearchingTopIngredients && (
+              <div className="mb-4 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <div className="space-y-0.5">
+                    <div className="font-bold">AI 서치 중 일부 배치 오류가 감지되었습니다</div>
+                    <div className="text-[11px] font-mono break-all opacity-90">
+                      {topIngredientsState.errorSummary}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveModal('cloud')}
+                  className="px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-100 text-[11px] font-bold shrink-0 cursor-pointer self-start sm:self-auto"
+                >
+                  API 키 설정 확인
+                </button>
               </div>
             )}
 
@@ -3403,15 +3595,29 @@ export default function App() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
               <div className="lg:col-span-5 h-52 bg-slate-50/70 rounded-xl border border-slate-100 p-3.5 flex flex-col justify-center">
                 {topIngredientsState.items.length === 0 ? (
-                  <div className="text-center space-y-2 px-4">
-                    <Sparkles className="w-7 h-7 text-sky-500 mx-auto opacity-80" />
-                    <div className="text-xs font-bold text-slate-700">
-                      아직 메인재료 TOP 5 서치가 실행되지 않았습니다
+                  topIngredientsState.updatedAt ? (
+                    <div className="text-center space-y-2 px-4">
+                      <AlertTriangle className="w-7 h-7 text-amber-500 mx-auto" />
+                      <div className="text-xs font-bold text-slate-700">
+                        확인된 메인 원재료가 없습니다
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed">
+                        {topIngredientsState.errorSummary
+                          ? '상단 [동기화 · AI키 설정]에서 Gemini API 키와 연결 테스트를 확인한 뒤 다시 시도해 주세요.'
+                          : '네이버 검색에서 확인 가능한 메뉴·원재료가 추출되지 않았습니다. 개별 업체의 [메뉴 서칭]을 먼저 실행하면 정확도가 높아집니다.'}
+                      </p>
                     </div>
-                    <p className="text-[11px] text-slate-400 leading-relaxed">
-                      우측 상단 <strong>[TOP 5 메인재료 서치]</strong> 버튼을 누르시면 등록된 거래처의 네이버 메뉴·리뷰를 분석해 원재료 TOP 5를 산출합니다.
-                    </p>
-                  </div>
+                  ) : (
+                    <div className="text-center space-y-2 px-4">
+                      <Sparkles className="w-7 h-7 text-sky-500 mx-auto opacity-80" />
+                      <div className="text-xs font-bold text-slate-700">
+                        아직 메인재료 TOP 5 서치가 실행되지 않았습니다
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-relaxed">
+                        우측 상단 <strong>[TOP 5 메인재료 서치]</strong> 버튼을 누르시면 등록된 거래처의 네이버 메뉴·리뷰를 분석해 원재료 TOP 5를 산출합니다.
+                      </p>
+                    </div>
+                  )
                 ) : (
                   <div className="space-y-2.5">
                     {(() => {
@@ -3457,7 +3663,9 @@ export default function App() {
               <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                 {topIngredientsState.items.length === 0 ? (
                   <div className="sm:col-span-2 md:col-span-3 p-6 rounded-xl border border-dashed border-slate-200 bg-slate-50/40 text-center text-xs text-slate-400">
-                    서치 완료 시 상위 5개 메인 원재료와 취급 거래처 수가 이곳에 카드 형태로 정리됩니다.
+                    {topIngredientsState.updatedAt
+                      ? '추출된 원재료 카드가 없습니다. API 키 상태 확인 후 다시 서치해 보세요.'
+                      : '서치 완료 시 상위 5개 메인 원재료와 취급 거래처 수가 이곳에 카드 형태로 정리됩니다.'}
                   </div>
                 ) : (
                   topIngredientsState.items.map((item) => (
@@ -3928,7 +4136,7 @@ export default function App() {
                 번 표시
               </div>
 
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 flex-wrap">
                 <button
                   onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
                   disabled={currentPage === 1}
@@ -3962,6 +4170,99 @@ export default function App() {
         </section>
       </main>
 
+      {/* 모달 1: TOP 5 메인재료 AI 서치 실행 확인창 */}
+      {activeModal === 'confirmTopIngredients' && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-sky-600" />
+                <h3 className="text-base font-bold text-slate-900">
+                  TOP 5 메인재료 AI 서치 실행 확인
+                </h3>
+              </div>
+              <button
+                onClick={() => setActiveModal(null)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs text-slate-600 leading-relaxed">
+              <p>
+                등록된 전체 거래처의 네이버 메뉴·리뷰를 검색하여 <strong>메인 원재료 TOP 5</strong>를 집계합니다. 정말 실행하시겠습니까?
+              </p>
+
+              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">대상 거래처 수</span>
+                  <strong className="text-slate-900">{partners.length}개사</strong>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">배치 실행 계획</span>
+                  <strong className="text-slate-900">
+                    5개사씩 묶음 · 총 {Math.ceil(partners.length / 5)}회 API 호출
+                  </strong>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-500">예상 리소스 · 비용</span>
+                  <strong className="text-sky-700">무료 할당량 내 0원 / 유료 시 약 200~600원</strong>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  실행 시 <strong>Gemini API 토큰 및 Google Search 그라운딩 할당량</strong>이 소모됩니다. (진행 중 언제든 [중지] 버튼으로 중단 가능)
+                </span>
+              </div>
+
+              {!supabaseConfig.geminiKey && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-2">
+                  <div className="font-bold flex items-center gap-1.5">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    현재 Gemini API 키가 설정되어 있지 않습니다.
+                  </div>
+                  <p className="text-[11px]">
+                    실제 홈페이지(Vercel)에서는 API 키가 없으면 검색이 차단됩니다. 먼저 키를 입력해 주세요.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveModal('cloud')}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-100 text-[11px] font-bold cursor-pointer"
+                  >
+                    <Database className="w-3.5 h-3.5" />
+                    동기화 · AI키 설정 열기
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setActiveModal(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+              >
+                취소
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveModal(null);
+                  handleRunTopIngredientsSearch();
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs cursor-pointer"
+              >
+                확인 · 서치 시작
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 모달 2: PC·모바일 실시간 동기화 및 AI 검색 키 설정 */}
       {activeModal === 'cloud' && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
@@ -4135,6 +4436,7 @@ NOTIFY pgrst, 'reload schema';`}
         </div>
       )}
 
+      {/* 모달 3: 엑셀 파일 일괄 추가 */}
       {activeModal === 'excel' && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
@@ -4246,6 +4548,7 @@ NOTIFY pgrst, 'reload schema';`}
         </div>
       )}
 
+      {/* 모달 4: 신규 거래업체 개별 등록 */}
       {activeModal === 'partner' && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
@@ -4465,6 +4768,7 @@ NOTIFY pgrst, 'reload schema';`}
         </div>
       )}
 
+      {/* 모달 5: 오늘의 위판장 시세 등록 */}
       {activeModal === 'auction' && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
