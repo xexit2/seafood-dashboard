@@ -274,6 +274,11 @@ const Instagram = ({ className }) => (
 
 const appId = 'seafood-dashboard-app';
 
+// 대표님 전용 Supabase 실시간 동기화 기본 설정 (PC · 모바일 무설정 자동 연동)
+const DEFAULT_SUPABASE_URL = 'https://xoprcktqaekcmkuhdehg.supabase.co';
+const DEFAULT_SUPABASE_ANON_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhvcHJja3RxYWVrY21rdWhkZWhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUwMDc3NDUsImV4cCI6MjExMDU4Mzc0NX0.9Jw9TCCYNWYkx2ZtK-A45s2OVHOHEDDASqVV0zIzeM0';
+
 // 외부 라이브러리 없이 브라우저 자체 기능으로 .xlsx(ZIP+XML)를 직접 해독하는 내장 파서 (Central Directory 지원)
 async function parseXlsxNatively(arrayBuffer) {
   const bytes = new Uint8Array(arrayBuffer);
@@ -961,9 +966,17 @@ const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
 
 export default function App() {
   const [isDataLoaded, setIsDataLoaded] = useState(false);
-  const [syncStatus, setSyncStatus] = useState('연결 중...');
-  const [supabaseConfig, setSupabaseConfig] = useState({ url: '', anonKey: '', geminiKey: '' });
-  const [supabaseForm, setSupabaseForm] = useState({ url: '', anonKey: '', geminiKey: '' });
+  const [syncStatus, setSyncStatus] = useState('클라우드 연결 중...');
+  const [supabaseConfig, setSupabaseConfig] = useState({
+    url: DEFAULT_SUPABASE_URL,
+    anonKey: DEFAULT_SUPABASE_ANON_KEY,
+    geminiKey: '',
+  });
+  const [supabaseForm, setSupabaseForm] = useState({
+    url: DEFAULT_SUPABASE_URL,
+    anonKey: DEFAULT_SUPABASE_ANON_KEY,
+    geminiKey: '',
+  });
 
   const [savedPin, setSavedPin] = useState(null);
   const [isUnlocked, setIsUnlocked] = useState(false);
@@ -1033,8 +1046,8 @@ export default function App() {
   };
 
   useEffect(() => {
-    let loadedSbUrl = '';
-    let loadedSbKey = '';
+    let loadedSbUrl = DEFAULT_SUPABASE_URL;
+    let loadedSbKey = DEFAULT_SUPABASE_ANON_KEY;
     try {
       const localPin = localStorage.getItem(`${appId}_pin`);
       const localPartners = localStorage.getItem(`${appId}_partners`);
@@ -1045,14 +1058,23 @@ export default function App() {
       if (localSb) {
         const parsedSb = JSON.parse(localSb);
         const normalizedSb = {
-          url: parsedSb.url || '',
-          anonKey: parsedSb.anonKey || '',
-          geminiKey: parsedSb.geminiKey || '',
+          url: (parsedSb.url || DEFAULT_SUPABASE_URL).trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, ''),
+          anonKey: (parsedSb.anonKey || DEFAULT_SUPABASE_ANON_KEY).trim(),
+          geminiKey: (parsedSb.geminiKey || '').trim(),
         };
         loadedSbUrl = normalizedSb.url;
         loadedSbKey = normalizedSb.anonKey;
         setSupabaseConfig(normalizedSb);
         setSupabaseForm(normalizedSb);
+      } else {
+        localStorage.setItem(
+          `${appId}_supabase`,
+          JSON.stringify({
+            url: DEFAULT_SUPABASE_URL,
+            anonKey: DEFAULT_SUPABASE_ANON_KEY,
+            geminiKey: '',
+          })
+        );
       }
 
       if (localPin) setSavedPin(localPin);
@@ -1096,7 +1118,10 @@ export default function App() {
       setSyncStatus('클라우드 동기화 중...');
       const cleanUrl = url.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
       const cleanKey = anonKey.trim();
-      const headers = { apikey: cleanKey };
+      const headers = {
+        apikey: cleanKey,
+        Accept: 'application/json',
+      };
       if (cleanKey.startsWith('eyJ')) {
         headers.Authorization = `Bearer ${cleanKey}`;
       }
@@ -1173,14 +1198,15 @@ export default function App() {
         const cleanKey = activeSb.anonKey.trim();
         const headers = {
           apikey: cleanKey,
+          Accept: 'application/json',
           'Content-Type': 'application/json',
-          Prefer: 'resolution=merge-duplicates',
+          Prefer: 'resolution=merge-duplicates,return=minimal',
         };
         if (cleanKey.startsWith('eyJ')) {
           headers.Authorization = `Bearer ${cleanKey}`;
         }
 
-        const res = await fetch(`${cleanUrl}/rest/v1/seafood_state`, {
+        const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?on_conflict=id`, {
           method: 'POST',
           headers,
           body: JSON.stringify({
@@ -2064,7 +2090,7 @@ export default function App() {
                   수산물 종합 유통·시세 대시보드
                 </h1>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                  v2.7 · 실제사이트 AI·어종완전연동판
+                  v2.8 · 전용 클라우드 자동연결판
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
