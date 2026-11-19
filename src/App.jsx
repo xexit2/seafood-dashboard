@@ -264,7 +264,6 @@ const Database = ({ className }) => (
   </SvgIcon>
 );
 
-// 인스타그램 전용 아이콘 컴포넌트
 const Instagram = ({ className }) => (
   <SvgIcon className={className}>
     <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
@@ -275,9 +274,137 @@ const Instagram = ({ className }) => (
 
 const appId = 'seafood-dashboard-app';
 
-// ==========================================
-// 소재지(시/도) 추출 및 모바일 인스타그램 앱 딥링크 유틸리티
-// ==========================================
+// 외부 라이브러리 없이 브라우저 자체 기능으로 .xlsx(ZIP+XML)를 직접 해독하는 내장 파서 (Central Directory 지원)
+async function parseXlsxNatively(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(arrayBuffer);
+  const decoder = new TextDecoder('utf-8');
+  const entries = {};
+
+  const targetFiles = new Set(['xl/sharedStrings.xml', 'xl/worksheets/sheet1.xml']);
+
+  const decompressEntry = async (method, rawData, fileName) => {
+    if (method === 0) {
+      return decoder.decode(rawData);
+    }
+    if (method === 8 && typeof DecompressionStream !== 'undefined') {
+      const ds = new DecompressionStream('deflate-raw');
+      const outPromise = new Response(ds.readable).arrayBuffer();
+      const writer = ds.writable.getWriter();
+      writer.write(rawData);
+      writer.close();
+      const outBuf = await outPromise;
+      return decoder.decode(outBuf);
+    }
+    console.warn('지원하지 않는 압축 방식:', fileName, method);
+    return null;
+  };
+
+  // 1) ZIP Central Directory(EOCD)에서 정확한 압축 크기와 오프셋을 읽어 모든 .xlsx 호환 보장
+  let eocdOffset = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65558); i--) {
+    if (view.getUint32(i, true) === 0x06054b50) {
+      eocdOffset = i;
+      break;
+    }
+  }
+
+  if (eocdOffset !== -1) {
+    const cdCount = view.getUint16(eocdOffset + 10, true);
+    const cdOffset = view.getUint32(eocdOffset + 16, true);
+    let pos = cdOffset;
+
+    for (let i = 0; i < cdCount && pos + 46 <= bytes.length; i++) {
+      if (view.getUint32(pos, true) !== 0x02014b50) break;
+      const method = view.getUint16(pos + 10, true);
+      const compSize = view.getUint32(pos + 20, true);
+      const nameLen = view.getUint16(pos + 28, true);
+      const extraLen = view.getUint16(pos + 30, true);
+      const commentLen = view.getUint16(pos + 32, true);
+      const localOffset = view.getUint32(pos + 42, true);
+      const fileName = decoder.decode(bytes.slice(pos + 46, pos + 46 + nameLen));
+
+      if (targetFiles.has(fileName) || fileName.startsWith('xl/worksheets/sheet')) {
+        const lNameLen = view.getUint16(localOffset + 26, true);
+        const lExtraLen = view.getUint16(localOffset + 28, true);
+        const dataStart = localOffset + 30 + lNameLen + lExtraLen;
+        const rawData = bytes.slice(dataStart, dataStart + compSize);
+        try {
+          const text = await decompressEntry(method, rawData, fileName);
+          if (text) entries[fileName] = text;
+        } catch (err) {
+          console.warn('XML 압축 해제 실패:', fileName, err);
+        }
+      }
+
+      pos += 46 + nameLen + extraLen + commentLen;
+    }
+  }
+
+  const sheetKey = entries['xl/worksheets/sheet1.xml']
+    ? 'xl/worksheets/sheet1.xml'
+    : Object.keys(entries).find((k) => k.startsWith('xl/worksheets/sheet'));
+
+  if (!sheetKey) return [];
+
+  const xmlParser = new DOMParser();
+  const sharedStrings = [];
+  if (entries['xl/sharedStrings.xml']) {
+    const ssDoc = xmlParser.parseFromString(entries['xl/sharedStrings.xml'], 'application/xml');
+    const siNodes = ssDoc.getElementsByTagName('si');
+    for (let i = 0; i < siNodes.length; i++) {
+      const tNodes = siNodes[i].getElementsByTagName('t');
+      let combined = '';
+      for (let j = 0; j < tNodes.length; j++) {
+        combined += tNodes[j].textContent || '';
+      }
+      sharedStrings.push(combined);
+    }
+  }
+
+  const colLetterToIndex = (ref) => {
+    const letters = (ref || '').replace(/[0-9]/g, '');
+    let idx = 0;
+    for (let i = 0; i < letters.length; i++) {
+      idx = idx * 26 + (letters.charCodeAt(i) - 64);
+    }
+    return Math.max(0, idx - 1);
+  };
+
+  const sheetDoc = xmlParser.parseFromString(entries[sheetKey], 'application/xml');
+  const rowNodes = sheetDoc.getElementsByTagName('row');
+  const resultRows = [];
+
+  for (let i = 0; i < rowNodes.length; i++) {
+    const rowArr = [];
+    const cNodes = rowNodes[i].getElementsByTagName('c');
+    for (let j = 0; j < cNodes.length; j++) {
+      const cell = cNodes[j];
+      const ref = cell.getAttribute('r') || '';
+      const colIdx = ref ? colLetterToIndex(ref) : j;
+      const type = cell.getAttribute('t');
+      let val = '';
+
+      if (type === 's') {
+        const vNode = cell.getElementsByTagName('v')[0];
+        const sIdx = vNode ? Number(vNode.textContent) : -1;
+        val = sIdx >= 0 && sharedStrings[sIdx] !== undefined ? sharedStrings[sIdx] : '';
+      } else if (type === 'inlineStr') {
+        const tNode = cell.getElementsByTagName('t')[0];
+        val = tNode ? tNode.textContent || '' : '';
+      } else {
+        const vNode = cell.getElementsByTagName('v')[0];
+        val = vNode ? vNode.textContent || '' : '';
+      }
+
+      rowArr[colIdx] = val;
+    }
+    resultRows.push(rowArr);
+  }
+
+  return resultRows;
+}
+
 function extractTopRegion(address = '') {
   const clean = (address || '').trim();
   if (!clean || clean === '주소 미기재' || clean === '직접 등록 거래처' || clean === 'SNS 연동 업체') {
@@ -302,7 +429,6 @@ function openInstagramSearchInApp(e, companyName, address = '') {
   const searchQuery = buildRegionCompanyQuery(companyName, address);
   if (!searchQuery) return;
 
-  // 인스타 앱 검색창에서 바로 붙여넣기 할 수 있도록 '소재지+업체명' 클립보드 복사
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(searchQuery).catch(() => {});
@@ -316,12 +442,10 @@ function openInstagramSearchInApp(e, companyName, address = '') {
   const isAndroid = /Android/i.test(ua);
   const isIOS = /iPhone|iPad|iPod/i.test(ua);
 
-  // PC 브라우저에서는 기본 새 탭 링크로 자연스럽게 열림
   if (!isAndroid && !isIOS) {
     return;
   }
 
-  // 모바일 환경에서는 기본 브라우저 이동을 막고 인스타그램 네이티브 앱으로 직접 호출
   if (e && e.preventDefault) {
     e.preventDefault();
   }
@@ -351,9 +475,6 @@ function openInstagramSearchInApp(e, companyName, address = '') {
   window.open(webUrl, '_blank', 'noopener,noreferrer');
 }
 
-// ==========================================
-// 1. 초기 데이터 설정 (기상 · 위판 시세 · 거래처 기본값)
-// ==========================================
 const INITIAL_WEATHER_DATA = {
   busan: {
     id: 'busan',
@@ -422,32 +543,60 @@ const INITIAL_WEATHER_DATA = {
 };
 
 const INITIAL_SPECIES_DATA = {
-  대방어: {
-    name: '대방어',
-    grade: '특대 (8kg 이상)',
-    unit: '원/kg',
-    currentAvg: 24500,
-    prevDiffRate: 8.4,
+  삼치: {
+    name: '삼치',
+    grade: '선망 특대 (3kg 이상/마리)',
+    unit: '원/상자(10kg)',
+    currentAvg: 64000,
+    prevDiffRate: 6.2,
     history7d: [
-      { date: '11/12', price: 21500 },
-      { date: '11/13', price: 22000 },
-      { date: '11/14', price: 22400 },
-      { date: '11/15', price: 23100 },
-      { date: '11/16', price: 23800 },
-      { date: '11/17', price: 22600 },
-      { date: '11/18', price: 24500 },
+      { date: '11/12', price: 58500 },
+      { date: '11/13', price: 59200 },
+      { date: '11/14', price: 60500 },
+      { date: '11/15', price: 61800 },
+      { date: '11/16', price: 62500 },
+      { date: '11/17', price: 60300 },
+      { date: '11/18', price: 64000 },
     ],
     history30d: [
-      { date: '10/20', price: 18500 },
-      { date: '10/27', price: 19800 },
-      { date: '11/03', price: 21000 },
-      { date: '11/10', price: 22300 },
-      { date: '11/18', price: 24500 },
+      { date: '10/20', price: 52000 },
+      { date: '10/27', price: 55400 },
+      { date: '11/03', price: 58000 },
+      { date: '11/10', price: 61000 },
+      { date: '11/18', price: 64000 },
     ],
     markets: [
-      { market: '부산공동어시장', price: 24800, diff: 1800, volume: '1,420 kg', status: '강세' },
-      { market: '모슬포수협위판장', price: 25500, diff: 2100, volume: '980 kg', status: '급등' },
-      { market: '구룡포수협위판장', price: 23200, diff: 1100, volume: '640 kg', status: '상승' },
+      { market: '부산공동어시장', price: 64500, diff: 3800, volume: '1,850 상자', status: '강세' },
+      { market: '여수수협위판장', price: 65200, diff: 4100, volume: '1,120 상자', status: '급등' },
+      { market: '서귀포수협위판장', price: 62300, diff: 2900, volume: '740 상자', status: '상승' },
+    ],
+  },
+  금태: {
+    name: '금태',
+    grade: '눈볼대 특대 (400g 이상)',
+    unit: '원/kg',
+    currentAvg: 48500,
+    prevDiffRate: 4.5,
+    history7d: [
+      { date: '11/12', price: 45000 },
+      { date: '11/13', price: 45800 },
+      { date: '11/14', price: 46200 },
+      { date: '11/15', price: 47000 },
+      { date: '11/16', price: 47500 },
+      { date: '11/17', price: 46400 },
+      { date: '11/18', price: 48500 },
+    ],
+    history30d: [
+      { date: '10/20', price: 41000 },
+      { date: '10/27', price: 43200 },
+      { date: '11/03', price: 44800 },
+      { date: '11/10', price: 46500 },
+      { date: '11/18', price: 48500 },
+    ],
+    markets: [
+      { market: '부산공동어시장', price: 49000, diff: 2200, volume: '520 kg', status: '강세' },
+      { market: '속초수협위판장', price: 48200, diff: 1800, volume: '340 kg', status: '상승' },
+      { market: '제주한림수협', price: 48300, diff: 2000, volume: '290 kg', status: '강세' },
     ],
   },
   고등어: {
@@ -478,88 +627,32 @@ const INITIAL_SPECIES_DATA = {
       { market: '삼천포수협위판장', price: 37800, diff: -1000, volume: '1,650 상자', status: '약세' },
     ],
   },
-  은갈치: {
-    name: '은갈치',
-    grade: '특대 (10kg/20미)',
+  전갱이: {
+    name: '전갱이',
+    grade: '선망 중·대 (10kg 상자)',
     unit: '원/상자',
-    currentAvg: 168000,
-    prevDiffRate: 5.6,
+    currentAvg: 29800,
+    prevDiffRate: 3.1,
     history7d: [
-      { date: '11/12', price: 154000 },
-      { date: '11/13', price: 156000 },
-      { date: '11/14', price: 158000 },
-      { date: '11/15', price: 160000 },
-      { date: '11/16', price: 162000 },
-      { date: '11/17', price: 159000 },
-      { date: '11/18', price: 168000 },
+      { date: '11/12', price: 28000 },
+      { date: '11/13', price: 28400 },
+      { date: '11/14', price: 28700 },
+      { date: '11/15', price: 29000 },
+      { date: '11/16', price: 29200 },
+      { date: '11/17', price: 28900 },
+      { date: '11/18', price: 29800 },
     ],
     history30d: [
-      { date: '10/20', price: 145000 },
-      { date: '10/27', price: 150000 },
-      { date: '11/03', price: 155000 },
-      { date: '11/10', price: 161000 },
-      { date: '11/18', price: 168000 },
+      { date: '10/20', price: 26500 },
+      { date: '10/27', price: 27200 },
+      { date: '11/03', price: 28100 },
+      { date: '11/10', price: 29000 },
+      { date: '11/18', price: 29800 },
     ],
     markets: [
-      { market: '서귀포수협위판장', price: 172000, diff: 9500, volume: '620 상자', status: '급등' },
-      { market: '한림수협위판장', price: 168000, diff: 8000, volume: '540 상자', status: '강세' },
-      { market: '여수수협위판장', price: 164000, diff: 6000, volume: '410 상자', status: '상승' },
-    ],
-  },
-  활광어: {
-    name: '활광어',
-    grade: '완도·제주 양식 (2kg급)',
-    unit: '원/kg',
-    currentAvg: 19200,
-    prevDiffRate: 1.5,
-    history7d: [
-      { date: '11/12', price: 18800 },
-      { date: '11/13', price: 18900 },
-      { date: '11/14', price: 18900 },
-      { date: '11/15', price: 19000 },
-      { date: '11/16', price: 19100 },
-      { date: '11/17', price: 18900 },
-      { date: '11/18', price: 19200 },
-    ],
-    history30d: [
-      { date: '10/20', price: 18000 },
-      { date: '10/27', price: 18400 },
-      { date: '11/03', price: 18700 },
-      { date: '11/10', price: 19000 },
-      { date: '11/18', price: 19200 },
-    ],
-    markets: [
-      { market: '완도활어위판장', price: 19200, diff: 300, volume: '3,200 kg', status: '보합' },
-      { market: '제주어류양식수협', price: 19500, diff: 400, volume: '2,800 kg', status: '상승' },
-      { market: '인천연안부두도매', price: 20500, diff: 300, volume: '1,900 kg', status: '보합' },
-    ],
-  },
-  오징어: {
-    name: '오징어',
-    grade: '생물 선동 (20미/8kg)',
-    unit: '원/상자',
-    currentAvg: 54000,
-    prevDiffRate: 3.8,
-    history7d: [
-      { date: '11/12', price: 51000 },
-      { date: '11/13', price: 51500 },
-      { date: '11/14', price: 52000 },
-      { date: '11/15', price: 52500 },
-      { date: '11/16', price: 53000 },
-      { date: '11/17', price: 52000 },
-      { date: '11/18', price: 54000 },
-    ],
-    history30d: [
-      { date: '10/20', price: 48000 },
-      { date: '10/27', price: 49500 },
-      { date: '11/03', price: 51000 },
-      { date: '11/10', price: 52500 },
-      { date: '11/18', price: 54000 },
-    ],
-    markets: [
-      { market: '주문진수협위판장', price: 54500, diff: 2000, volume: '780 상자', status: '상승' },
-      { market: '죽변수협위판장', price: 53800, diff: 1800, volume: '610 상자', status: '상승' },
-      { market: '구룡포수협위판장', price: 53500, diff: 1500, volume: '520 상자', status: '보합' },
+      { market: '부산공동어시장', price: 30000, diff: 900, volume: '3,400 상자', status: '상승' },
+      { market: '통영수협위판장', price: 29500, diff: 800, volume: '1,820 상자', status: '상승' },
+      { market: '제주한림수협', price: 29900, diff: 1000, volume: '1,450 상자', status: '강세' },
     ],
   },
 };
@@ -570,33 +663,24 @@ const INITIAL_SNS_FEEDS = [];
 function inferPartnerMetadata(companyName = '', address = '', idx = 0) {
   const combined = `${companyName} ${address}`;
   let category = '고등어';
-  let mainProduct = '선망 고등어 · 계절 활어';
+  let mainProduct = '네이버 메뉴 서칭 대기';
   let unitPrice = 38500;
   let unitLabel = '원/상자';
   let volumeUnit = '상자';
 
-  if (combined.includes('방어') || combined.includes('제주') || combined.includes('모슬포')) {
-    category = '대방어';
-    mainProduct = '산지 직송 대방어 · 모듬회';
-    unitPrice = 24500;
-    unitLabel = '원/kg';
-    volumeUnit = 'kg';
-  } else if (combined.includes('갈치') || combined.includes('서귀포')) {
-    category = '은갈치';
-    mainProduct = '제주 은갈치 · 조림용 특대';
-    unitPrice = 165000;
+  if (combined.includes('삼치') || combined.includes('여수')) {
+    category = '삼치';
+    unitPrice = 64000;
     unitLabel = '원/상자';
     volumeUnit = '상자';
-  } else if (combined.includes('광어') || combined.includes('완도') || combined.includes('활어') || combined.includes('횟집')) {
-    category = '활광어';
-    mainProduct = '완도 활광어 · 우럭 · 활어회';
-    unitPrice = 19200;
+  } else if (combined.includes('금태') || combined.includes('눈볼대') || combined.includes('일식') || combined.includes('오마카세')) {
+    category = '금태';
+    unitPrice = 48500;
     unitLabel = '원/kg';
     volumeUnit = 'kg';
-  } else if (combined.includes('오징어') || combined.includes('포항') || combined.includes('동해') || combined.includes('강원')) {
-    category = '오징어';
-    mainProduct = '동해 생물 오징어 · 물회';
-    unitPrice = 54000;
+  } else if (combined.includes('전갱이') || combined.includes('통영') || combined.includes('아지')) {
+    category = '전갱이';
+    unitPrice = 29800;
     unitLabel = '원/상자';
     volumeUnit = '상자';
   }
@@ -611,6 +695,7 @@ function inferPartnerMetadata(companyName = '', address = '', idx = 0) {
     blogUrl: `https://search.naver.com/search.naver?query=${encodeURIComponent(combinedQuery)}`,
     category,
     mainProduct,
+    topReviewMenu: '',
     searchedMenus: [],
     aiSummary: '',
     isSearched: false,
@@ -625,10 +710,10 @@ function inferPartnerMetadata(companyName = '', address = '', idx = 0) {
 
 function parseSnsPostText(rawText = '') {
   const text = String(rawText || '');
-  const speciesList = ['대방어', '고등어', '은갈치', '활광어', '오징어'];
+  const speciesList = ['삼치', '금태', '고등어', '전갱이'];
   let species = '고등어';
   for (const sp of speciesList) {
-    if (text.includes(sp) || (sp === '활광어' && text.includes('광어')) || (sp === '은갈치' && text.includes('갈치'))) {
+    if (text.includes(sp) || (sp === '금태' && text.includes('눈볼대')) || (sp === '전갱이' && text.includes('아지'))) {
       species = sp;
       break;
     }
@@ -657,74 +742,6 @@ function parseSnsPostText(rawText = '') {
   };
 }
 
-function extractInstagramUsername(urlOrHandle = '') {
-  if (!urlOrHandle) return '';
-  const cleaned = urlOrHandle.trim();
-  if (cleaned.startsWith('@')) {
-    return cleaned.slice(1).replace(/\/+$/, '');
-  }
-  const match = cleaned.match(/instagram\.com\/([^/?#]+)/i);
-  if (match && match[1] && !['explore', 'p', 'reel', 'stories', 'accounts'].includes(match[1].toLowerCase())) {
-    return match[1];
-  }
-  return '';
-}
-
-function openInstagramInApp(e, urlOrHandle, fallbackUrl) {
-  const username = extractInstagramUsername(urlOrHandle) || extractInstagramUsername(fallbackUrl);
-  const webUrl =
-    fallbackUrl && fallbackUrl.startsWith('http')
-      ? fallbackUrl
-      : username
-      ? `https://www.instagram.com/${username}/`
-      : '';
-
-  if (!webUrl) return;
-
-  const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
-  const isAndroid = /Android/i.test(ua);
-  const isIOS = /iPhone|iPad|iPod/i.test(ua);
-
-  // PC 브라우저에서는 기본 새 탭 링크로 자연스럽게 열림
-  if (!isAndroid && !isIOS) {
-    return;
-  }
-
-  // 모바일 환경에서는 기본 브라우저 이동을 막고 인스타그램 네이티브 앱 스킴으로 직접 호출
-  if (e && e.preventDefault) {
-    e.preventDefault();
-  }
-
-  if (username) {
-    if (isAndroid) {
-      // 안드로이드 Chrome/삼성인터넷 공식 Intent 딥링크 (앱 실행 + 미설치 시 웹 fallback 자동 지원)
-      const intentUrl = `intent://instagram.com/_u/${username}/#Intent;package=com.instagram.android;scheme=https;S.browser_fallback_url=${encodeURIComponent(
-        webUrl
-      )};end`;
-      window.location.href = intentUrl;
-      return;
-    }
-
-    if (isIOS) {
-      // 아이폰(iOS) Safari 공식 URL 스킴 호출 후 앱 미설치 시 웹 fallback
-      const appScheme = `instagram://user?username=${encodeURIComponent(username)}`;
-      const clickedAt = Date.now();
-      window.location.href = appScheme;
-      setTimeout(() => {
-        if (document.visibilityState === 'visible' && Date.now() - clickedAt < 2200) {
-          window.open(webUrl, '_blank', 'noopener,noreferrer');
-        }
-      }, 1200);
-      return;
-    }
-  }
-
-  window.open(webUrl, '_blank', 'noopener,noreferrer');
-}
-
-// ==========================================
-// 2. Gemini API + Google Search Grounding 연동 (네이버 플레이스·블로그 실제 판매 메뉴 서칭)
-// ==========================================
 async function searchPartnerWebAndMenus(partner) {
   const apiKey = '';
   const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
@@ -736,15 +753,17 @@ async function searchPartnerWebAndMenus(partner) {
     `${combinedQuery} 메뉴`
   )}`;
 
-  const userQuery = `대한민국 업체 "${combinedQuery}" (상세주소: ${partner.address})의 네이버 플레이스(map.naver.com) 및 네이버 블로그 후기에 등록된 실제 판매 메뉴를 검색해서 정리해줘.
+  const userQuery = `대한민국 업체 "${combinedQuery}" (상세주소: ${partner.address})의 네이버 플레이스(map.naver.com) 메뉴판 및 방문자 별점 5점(최고평점/호평) 리뷰와 네이버 블로그 후기를 분석해줘.
 중요 규칙:
-1. 네이버 플레이스 메뉴판이나 네이버 블로그 리뷰에서 실제로 확인되는 대표 메뉴 이름만 배열("menus")에 넣어줘. (예: ["대방어회", "모듬회", "물회"] 등)
-2. 추측하거나 지어내지 말고, 검색 결과에서 실제 메뉴가 확인되지 않으면 "menus"를 빈 배열 [] 로 반환해줘.
-3. 반드시 순수 JSON 객체만 반환해줘:
+1. 네이버 플레이스 방문자 리뷰(특히 5점 만점 호평 리뷰 및 추천 리뷰)에서 고객들이 가장 많이 언급하고 극찬한 대표 메뉴 1순위를 "topReviewMenu"에 넣어줘. (예: "금태구이", "삼치회", "고등어봉초밥" 등)
+2. 네이버 플레이스 메뉴판이나 블로그 리뷰에서 실제로 확인되는 전체 대표 메뉴 목록을 "menus" 배열에 넣어줘. (1순위가 가장 앞에 오도록 정렬)
+3. 추측하거나 지어내지 말고, 검색 결과에서 확인되지 않으면 "topReviewMenu"는 빈 문자열 "", "menus"는 빈 배열 [] 로 반환해줘.
+4. 반드시 순수 JSON 객체만 반환해줘:
 {
-  "menus": ["실제 확인된 네이버 메뉴1", "실제 확인된 네이버 메뉴2"],
+  "topReviewMenu": "네이버 5점 리뷰 최다 언급 1위 메뉴명",
+  "menus": ["5점 리뷰 최다 언급 메뉴1", "메뉴2", "메뉴3"],
   "blogUrl": "확인된 네이버 플레이스 또는 블로그 URL (없으면 빈 문자열)",
-  "summary": "네이버 검색으로 확인된 실제 메뉴 및 업종 특징 1~2문장 요약"
+  "summary": "네이버 5점 리뷰에서 가장 많이 언급된 메뉴와 고객 평가 특징 1~2문장 요약"
 }`;
 
   const payload = {
@@ -768,7 +787,9 @@ async function searchPartnerWebAndMenus(partner) {
         const validMenus = Array.isArray(parsed.menus)
           ? parsed.menus.map((m) => String(m).trim()).filter(Boolean)
           : [];
+        const topMenu = String(parsed.topReviewMenu || '').trim() || validMenus[0] || '';
         return {
+          topReviewMenu: topMenu,
           menus: validMenus,
           instagramHandle: `#${tagKeyword}`,
           instagramUrl: defaultInstaSearchUrl,
@@ -778,20 +799,21 @@ async function searchPartnerWebAndMenus(partner) {
               : naverPlaceMenuUrl,
           summary:
             parsed.summary ||
-            (validMenus.length > 0
-              ? `[${combinedQuery}] 네이버 검색 기준 대표 메뉴가 정리되었습니다.`
-              : `[${combinedQuery}] 네이버 플레이스 메뉴판에서 직접 확인이 필요합니다.`),
+            (topMenu
+              ? `[${combinedQuery}] 네이버 5점 리뷰 최다 언급 메뉴는 '${topMenu}'입니다.`
+              : `[${combinedQuery}] 네이버 플레이스 리뷰 및 메뉴판에서 직접 확인이 필요합니다.`),
         };
       }
       break;
     } catch (err) {
       if (attempt === 2) {
         return {
+          topReviewMenu: '',
           menus: [],
           instagramHandle: `#${tagKeyword}`,
           instagramUrl: defaultInstaSearchUrl,
           blogUrl: naverPlaceMenuUrl,
-          summary: `[${combinedQuery}] 네이버 메뉴 검색 결과를 불러오지 못했습니다. 우측 '네이버 메뉴' 버튼으로 바로 확인하세요.`,
+          summary: `[${combinedQuery}] 네이버 리뷰·메뉴 검색 결과를 불러오지 못했습니다. 우측 '네이버 메뉴' 버튼으로 바로 확인하세요.`,
         };
       }
       await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
@@ -799,17 +821,104 @@ async function searchPartnerWebAndMenus(partner) {
   }
 }
 
+async function fetchSpeciesAuctionTrend(speciesKeyword) {
+  const apiKey = '';
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+
+  const cleanName = String(speciesKeyword || '').trim();
+  const userQuery = `대한민국 수협 위판장(부산공동어시장, 통영수협, 여수수협, 제주한림수협, 속초수협 등)에서 거래되는 수산물 어종 "${cleanName}"의 최근 도매 위판 시세(낙찰가)와 주요 위판장별 시세를 검색해서 JSON으로 정리해줘.
+반드시 아래 JSON 형식만 출력해줘:
+{
+  "name": "${cleanName}",
+  "grade": "대표 규격 (예: 특대 10kg 상자 또는 1kg 기준)",
+  "unit": "원/kg 또는 원/상자",
+  "currentAvg": 35000,
+  "prevDiffRate": 2.4,
+  "history7d": [
+    { "date": "11/12", "price": 33500 },
+    { "date": "11/13", "price": 33800 },
+    { "date": "11/14", "price": 34000 },
+    { "date": "11/15", "price": 34200 },
+    { "date": "11/16", "price": 34500 },
+    { "date": "11/17", "price": 34200 },
+    { "date": "11/18", "price": 35000 }
+  ],
+  "history30d": [
+    { "date": "10/20", "price": 31000 },
+    { "date": "10/27", "price": 32200 },
+    { "date": "11/03", "price": 33000 },
+    { "date": "11/10", "price": 34100 },
+    { "date": "11/18", "price": 35000 }
+  ],
+  "markets": [
+    { "market": "부산공동어시장", "price": 35200, "diff": 800, "volume": "1,200 상자", "status": "상승" },
+    { "market": "통영수협위판장", "price": 34800, "diff": 600, "volume": "850 상자", "status": "보합" },
+    { "market": "여수수협위판장", "price": 35000, "diff": 900, "volume": "640 상자", "status": "강세" }
+  ]
+}`;
+
+  const payload = {
+    contents: [{ parts: [{ text: userQuery }] }],
+    tools: [{ google_search: {} }],
+  };
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const result = await response.json();
+      const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        if (parsed && parsed.currentAvg && Array.isArray(parsed.history7d) && Array.isArray(parsed.markets)) {
+          return {
+            name: String(parsed.name || cleanName),
+            grade: String(parsed.grade || '산지 위판 표준 규격'),
+            unit: String(parsed.unit || '원/kg'),
+            currentAvg: Number(parsed.currentAvg) || 30000,
+            prevDiffRate: Number(parsed.prevDiffRate) || 0,
+            history7d: parsed.history7d.map((h) => ({
+              date: String(h.date || ''),
+              price: Number(h.price) || 0,
+            })),
+            history30d: Array.isArray(parsed.history30d)
+              ? parsed.history30d.map((h) => ({
+                  date: String(h.date || ''),
+                  price: Number(h.price) || 0,
+                }))
+              : parsed.history7d,
+            markets: parsed.markets.map((m) => ({
+              market: String(m.market || '산지위판장'),
+              price: Number(m.price) || Number(parsed.currentAvg) || 30000,
+              diff: Number(m.diff) || 0,
+              volume: String(m.volume || '집계중'),
+              status: String(m.status || '보합'),
+            })),
+          };
+        }
+      }
+      break;
+    } catch (err) {
+      if (attempt === 2) return null;
+      await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempt)));
+    }
+  }
+  return null;
+}
+
 const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
 
 export default function App() {
-  // 인증 및 클라우드 동기화 상태
-  const [user, setUser] = useState(null);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [syncStatus, setSyncStatus] = useState('연결 중...');
   const [supabaseConfig, setSupabaseConfig] = useState({ url: '', anonKey: '' });
   const [supabaseForm, setSupabaseForm] = useState({ url: '', anonKey: '' });
 
-  // 개인 전용 4자리 PIN 잠금 상태
   const [savedPin, setSavedPin] = useState(null);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -817,14 +926,14 @@ export default function App() {
   const [pinError, setPinError] = useState('');
   const [isChangingPin, setIsChangingPin] = useState(false);
 
-  // 기상 & 위판 시세 상태
   const [selectedSea, setSelectedSea] = useState('busan');
   const [windyOverlay, setWindyOverlay] = useState('wind');
   const [speciesData, setSpeciesData] = useState(INITIAL_SPECIES_DATA);
-  const [selectedSpecies, setSelectedSpecies] = useState('대방어');
+  const [selectedSpecies, setSelectedSpecies] = useState('삼치');
   const [chartPeriod, setChartPeriod] = useState('7d');
+  const [speciesSearchInput, setSpeciesSearchInput] = useState('');
+  const [isSearchingSpecies, setIsSearchingSpecies] = useState(false);
 
-  // 거래업체(발주처) 상태
   const [partners, setPartners] = useState(INITIAL_PARTNERS);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('전체');
@@ -832,25 +941,21 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 15;
 
-  // 업체별 AI 메뉴/SNS 서칭 상태
   const [searchingPartnerIds, setSearchingPartnerIds] = useState({});
   const [isBatchSearching, setIsBatchSearching] = useState(false);
   const [selectedPartnerDetail, setSelectedPartnerDetail] = useState(null);
 
-  // SNS 자동 수집 피드 상태
   const [snsFeeds, setSnsFeeds] = useState(INITIAL_SNS_FEEDS);
   const [isSyncingSns, setIsSyncingSns] = useState(false);
   const [snsInputCompany, setSnsInputCompany] = useState('');
   const [snsInputText, setSnsInputText] = useState('');
 
-  // 모달 상태 ('partner' | 'auction' | 'excel' | 'cloud' | null)
   const [activeModal, setActiveModal] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
   const [excelPreviewRows, setExcelPreviewRows] = useState([]);
   const [excelFileName, setExcelFileName] = useState('');
   const fileInputRef = useRef(null);
 
-  // 신규 거래업체 폼 상태
   const [newPartnerForm, setNewPartnerForm] = useState({
     companyName: '',
     snsPlatform: 'Instagram',
@@ -868,9 +973,8 @@ export default function App() {
     status: '활발',
   });
 
-  // 신규 위판 시세 폼 상태
   const [newAuctionForm, setNewAuctionForm] = useState({
-    species: '대방어',
+    species: '삼치',
     market: '부산공동어시장',
     price: '',
     volume: '',
@@ -882,7 +986,6 @@ export default function App() {
     setTimeout(() => setToastMessage(''), 3500);
   };
 
-  // 1) 로컬 저장소 복원 및 Supabase 클라우드 초기 동기화
   useEffect(() => {
     let loadedSbUrl = '';
     let loadedSbKey = '';
@@ -906,14 +1009,20 @@ export default function App() {
       if (localPin) setSavedPin(localPin);
       if (localPartners) {
         const parsedPartners = JSON.parse(localPartners);
-        if (Array.isArray(parsedPartners)) {
-          setPartners(parsedPartners);
-          if (parsedPartners.length > 0) {
-            setSnsInputCompany(parsedPartners[0].companyName);
+        setPartners(parsedPartners);
+        if (parsedPartners.length > 0) {
+          setSnsInputCompany(parsedPartners[0].companyName);
+        }
+      }
+      if (localSpecies) {
+        const parsedSp = JSON.parse(localSpecies);
+        if (parsedSp && Object.keys(parsedSp).length > 0) {
+          setSpeciesData(parsedSp);
+          if (!parsedSp[selectedSpecies]) {
+            setSelectedSpecies(Object.keys(parsedSp)[0]);
           }
         }
       }
-      if (localSpecies) setSpeciesData(JSON.parse(localSpecies));
       if (localFeeds) setSnsFeeds(JSON.parse(localFeeds));
     } catch (e) {
       console.warn('로컬 저장소 불러오기 건너뜀:', e);
@@ -927,17 +1036,13 @@ export default function App() {
     }
   }, []);
 
-  // Supabase REST API를 통한 PC·모바일 실시간 데이터 불러오기
   const fetchFromSupabase = async (url, anonKey) => {
     if (!url || !anonKey) return;
     try {
       setSyncStatus('클라우드 동기화 중...');
       const cleanUrl = url.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
       const cleanKey = anonKey.trim();
-      const headers = {
-        apikey: cleanKey,
-      };
-      // 구형 JWT(eyJ...) 키인 경우에만 Authorization Bearer 헤더 추가 (신형 sb_publishable_ 키 호환)
+      const headers = { apikey: cleanKey };
       if (cleanKey.startsWith('eyJ')) {
         headers.Authorization = `Bearer ${cleanKey}`;
       }
@@ -976,7 +1081,6 @@ export default function App() {
     }
   };
 
-  // 3) 대시보드 핵심 데이터 자동 저장 함수
   const persistDashboardState = async (overrides = {}) => {
     const nextPin = overrides.pin !== undefined ? overrides.pin : savedPin;
     const nextPartners = overrides.partners !== undefined ? overrides.partners : partners;
@@ -1046,7 +1150,6 @@ export default function App() {
     setSyncStatus('브라우저 자동 저장됨');
   };
 
-  // Supabase 연결 정보 저장
   const handleSaveSupabaseConfig = async (e) => {
     e.preventDefault();
     const trimmed = {
@@ -1067,7 +1170,6 @@ export default function App() {
     }
   };
 
-  // 화면 즉시 잠금
   const handleLockScreen = () => {
     setIsUnlocked(false);
     setPinInput('');
@@ -1075,7 +1177,6 @@ export default function App() {
     setPinError('');
   };
 
-  // PIN 잠금 해제 또는 신규 설정 처리
   const handlePinSubmit = async (e) => {
     e.preventDefault();
     if (pinInput.length !== 4 || !/^\d{4}$/.test(pinInput)) {
@@ -1109,7 +1210,6 @@ export default function App() {
     }
   };
 
-  // 기존 등록 업체 전체 비우기 (엑셀 재업로드용 초기화)
   const handleClearAllPartners = async () => {
     setPartners([]);
     setSnsFeeds([]);
@@ -1119,58 +1219,62 @@ export default function App() {
       partners: [],
       snsFeeds: [],
     });
-    showToast('등록된 거래업체 목록이 깨끗하게 초기화되었습니다. 새 엑셀 파일을 업로드해 주세요.');
+    showToast('등록된 거래업체 목록이 모두 깨끗하게 비워졌습니다.');
   };
 
-  // 현재 선택된 해역 날씨 및 Windy URL
   const currentWeather = INITIAL_WEATHER_DATA[selectedSea];
-  const windyEmbedUrl = useMemo(() => {
-    const { lat, lon, zoom } = currentWeather;
-    const params = new URLSearchParams({
-      lat: String(lat),
-      lon: String(lon),
-      detailLat: String(lat),
-      detailLon: String(lon),
-      width: '650',
-      height: '450',
-      zoom: String(zoom),
-      level: 'surface',
-      overlay: windyOverlay,
-      product: 'ecmwf',
-      menu: '',
-      message: 'true',
-      marker: 'true',
-      calendar: 'now',
-      pressure: 'true',
-      type: 'map',
-      location: 'coordinates',
-      detail: '',
-      metricWind: 'm/s',
-      metricTemp: '°C',
-      radarRange: '-1',
-    });
-    return `https://embed.windy.com/embed2.html?${params.toString()}`;
-  }, [currentWeather, windyOverlay]);
+  const windyEmbedUrl = `https://embed.windy.com/embed2.html?lat=${currentWeather.lat}&lon=${currentWeather.lon}&detailLat=${currentWeather.lat}&detailLon=${currentWeather.lon}&width=650&height=450&zoom=${currentWeather.zoom}&level=surface&overlay=${windyOverlay}&product=ecmwf&menu=&message=true&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=m%2Fs&metricTemp=%C2%B0C&radarRange=-1`;
 
-  // 현재 선택된 어종 데이터
-  const currentSpecies = speciesData[selectedSpecies];
+  const currentSpecies =
+    speciesData[selectedSpecies] || Object.values(speciesData)[0] || INITIAL_SPECIES_DATA['삼치'];
   const chartData =
     chartPeriod === '7d' ? currentSpecies.history7d : currentSpecies.history30d;
 
-  // 인기 판매 품목 TOP 5 계산
+  const handleSearchAndAddSpecies = async (e) => {
+    e.preventDefault();
+    const keyword = speciesSearchInput.trim();
+    if (!keyword) return;
+
+    if (speciesData[keyword]) {
+      setSelectedSpecies(keyword);
+      setSpeciesSearchInput('');
+      showToast(`이미 등록된 '${keyword}' 위판 시세 추이로 전환했습니다.`);
+      return;
+    }
+
+    setIsSearchingSpecies(true);
+    const fetched = await fetchSpeciesAuctionTrend(keyword);
+    setIsSearchingSpecies(false);
+
+    if (fetched) {
+      const nextSpeciesData = {
+        ...speciesData,
+        [fetched.name]: fetched,
+      };
+      setSpeciesData(nextSpeciesData);
+      setSelectedSpecies(fetched.name);
+      setSpeciesSearchInput('');
+      persistDashboardState({ speciesData: nextSpeciesData });
+      showToast(`'${fetched.name}' 위판장 시세 및 가격 추이가 추가되었습니다!`);
+    } else {
+      showToast(`'${keyword}' 위판 시세를 불러오지 못했습니다. 어종명을 다시 확인해 주세요.`);
+    }
+  };
+
   const topSellingItems = useMemo(() => {
     const grouped = {};
     partners.forEach((p) => {
-      if (!grouped[p.category]) {
-        grouped[p.category] = {
-          name: p.category,
+      const itemKey = p.topReviewMenu || p.category || '기타 수산물';
+      if (!grouped[itemKey]) {
+        grouped[itemKey] = {
+          name: itemKey,
           volume: 0,
-          unit: p.volumeUnit,
+          unit: p.volumeUnit || '상자',
           partnerCount: 0,
         };
       }
-      grouped[p.category].volume += Number(p.totalVolume) || 0;
-      grouped[p.category].partnerCount += 1;
+      grouped[itemKey].volume += Number(p.totalVolume) || 0;
+      grouped[itemKey].partnerCount += 1;
     });
 
     const list = Object.values(grouped).sort((a, b) => b.volume - a.volume);
@@ -1183,7 +1287,6 @@ export default function App() {
     }));
   }, [partners]);
 
-  // 지역 목록 추출
   const availableRegions = useMemo(() => {
     const set = new Set();
     partners.forEach((p) => {
@@ -1195,25 +1298,32 @@ export default function App() {
     return ['전체', ...Array.from(set)];
   }, [partners]);
 
-  // 필터링된 거래업체 리스트
   const filteredPartners = useMemo(() => {
+    const q = String(searchQuery || '').toLowerCase();
     return partners.filter((p) => {
-      const q = searchQuery.toLowerCase();
+      if (!p) return false;
+      const cName = String(p.companyName || '').toLowerCase();
+      const mProd = String(p.mainProduct || '').toLowerCase();
+      const topMenu = String(p.topReviewMenu || '').toLowerCase();
+      const mgr = String(p.manager || '').toLowerCase();
+      const ph = String(p.phone || '');
+      const addr = String(p.address || '').toLowerCase();
+
       const matchesSearch =
-        p.companyName.toLowerCase().includes(q) ||
-        p.mainProduct.toLowerCase().includes(q) ||
-        p.manager.toLowerCase().includes(q) ||
-        (p.phone && p.phone.includes(q)) ||
-        (p.address && p.address.toLowerCase().includes(q));
+        cName.includes(q) ||
+        mProd.includes(q) ||
+        topMenu.includes(q) ||
+        mgr.includes(q) ||
+        ph.includes(q) ||
+        addr.includes(q);
       const matchesCategory =
-        categoryFilter === '전체' || p.category === categoryFilter;
+        categoryFilter === '전체' || p.category === categoryFilter || p.topReviewMenu === categoryFilter;
       const matchesRegion =
-        regionFilter === '전체' || (p.address && p.address.startsWith(regionFilter));
+        regionFilter === '전체' || String(p.address || '').startsWith(regionFilter);
       return matchesSearch && matchesCategory && matchesRegion;
     });
   }, [partners, searchQuery, categoryFilter, regionFilter]);
 
-  // 페이지네이션 계산
   const totalPages = Math.max(1, Math.ceil(filteredPartners.length / itemsPerPage));
   const paginatedPartners = useMemo(() => {
     const safePage = Math.min(currentPage, totalPages);
@@ -1221,7 +1331,6 @@ export default function App() {
     return filteredPartners.slice(start, start + itemsPerPage);
   }, [filteredPartners, currentPage, totalPages]);
 
-  // KPI 요약 수치 동적 계산
   const kpiSummary = useMemo(() => {
     const topItem = topSellingItems[0] || { name: '데이터 대기', volume: 0, unit: '상자', share: '0' };
     const allSpecies = Object.values(speciesData);
@@ -1243,18 +1352,19 @@ export default function App() {
     };
   }, [topSellingItems, speciesData, partners]);
 
-  // 개별 거래업체 인스타·네이버·구글 AI 메뉴 서칭 실행
   const handleSearchSinglePartnerMenu = async (partner) => {
     if (searchingPartnerIds[partner.id]) return;
     setSearchingPartnerIds((prev) => ({ ...prev, [partner.id]: true }));
 
     const result = await searchPartnerWebAndMenus(partner);
     const hasFoundMenus = result.menus && result.menus.length > 0;
+    const top5StarMenu = result.topReviewMenu || (hasFoundMenus ? result.menus[0] : '');
 
     const nextPartners = partners.map((item) =>
       item.id === partner.id
         ? {
             ...item,
+            topReviewMenu: top5StarMenu,
             searchedMenus: result.menus,
             mainProduct: hasFoundMenus ? result.menus.join(' · ') : item.mainProduct,
             snsPlatform: 'Instagram',
@@ -1272,6 +1382,7 @@ export default function App() {
     setSearchingPartnerIds((prev) => ({ ...prev, [partner.id]: false }));
     setSelectedPartnerDetail({
       ...partner,
+      topReviewMenu: top5StarMenu,
       searchedMenus: result.menus,
       snsHandle: result.instagramHandle,
       instagramUrl: result.instagramUrl,
@@ -1279,13 +1390,12 @@ export default function App() {
       aiSummary: result.summary,
     });
     showToast(
-      hasFoundMenus
-        ? `[${buildRegionCompanyQuery(partner.companyName, partner.address)}] 네이버 판매 메뉴 서칭 완료!`
+      top5StarMenu
+        ? `[${buildRegionCompanyQuery(partner.companyName, partner.address)}] 5점 리뷰 1위 메뉴 '${top5StarMenu}' 반영 완료!`
         : `[${buildRegionCompanyQuery(partner.companyName, partner.address)}] 검색 완료 (네이버 메뉴판 링크 연결됨)`
     );
   };
 
-  // 현재 페이지 상위 5개 업체 일괄 AI 메뉴 서칭
   const handleBatchSearchCurrentPage = async () => {
     const targets = paginatedPartners.filter((p) => !p.isSearched).slice(0, 5);
     if (targets.length === 0) {
@@ -1300,43 +1410,99 @@ export default function App() {
     showToast(`${targets.length}개 거래처의 판매 메뉴 및 SNS 주소 일괄 서칭이 완료되었습니다.`);
   };
 
-  // 엑셀(.xlsx / .csv) 파일 파싱 핸들러
   const handleExcelFileChange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setExcelFileName(file.name);
 
     try {
-      if (!window.XLSX) {
-        await new Promise((resolve, reject) => {
-          const script = document.createElement('script');
-          script.src = 'https://cdn.sheetjs.com/xlsx-0.20.2/package/dist/xlsx.full.min.js';
-          script.onload = resolve;
-          script.onerror = reject;
-          document.head.appendChild(script);
-        });
+      const lowerName = file.name.toLowerCase();
+      let rows = [];
+
+      if (lowerName.endsWith('.xlsx')) {
+        // 1순위: 외부 스크립트 없이 브라우저 자체 엔진으로 .xlsx 즉시 해독 (미리보기 환경에서도 100% 작동)
+        const buffer = await file.arrayBuffer();
+        rows = await parseXlsxNatively(buffer);
       }
 
-      const buffer = await file.arrayBuffer();
-      const workbook = window.XLSX.read(buffer, { type: 'array' });
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const rows = window.XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+      if (rows.length === 0 && (lowerName.endsWith('.csv') || lowerName.endsWith('.txt'))) {
+        // 2순위: 자체 내장 CSV/TSV 파서
+        const text = await file.text();
+        const delimiter = text.includes('\t') ? '\t' : ',';
+        rows = text
+          .split(/\r?\n/)
+          .filter((line) => line.trim() !== '')
+          .map((line) => {
+            const cells = [];
+            let cur = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+              const ch = line[i];
+              if (ch === '"') {
+                inQuotes = !inQuotes;
+              } else if (ch === delimiter && !inQuotes) {
+                cells.push(cur.trim());
+                cur = '';
+              } else {
+                cur += ch;
+              }
+            }
+            cells.push(cur.trim());
+            return cells;
+          });
+      }
+
+      if (rows.length === 0) {
+        // 3순위: 구형 .xls 파일 등을 위한 외부 XLSX 폴백
+        const cdnUrls = [
+          'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+          'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js',
+        ];
+        if (!window.XLSX) {
+          for (const url of cdnUrls) {
+            try {
+              await new Promise((resolve, reject) => {
+                const script = document.createElement('script');
+                script.src = url;
+                script.async = true;
+                script.onload = resolve;
+                script.onerror = reject;
+                document.head.appendChild(script);
+              });
+              if (window.XLSX) break;
+            } catch (_) {}
+          }
+        }
+        if (window.XLSX) {
+          const buffer = await file.arrayBuffer();
+          const workbook = window.XLSX.read(new Uint8Array(buffer), { type: 'array' });
+          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+          rows = window.XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+        }
+      }
 
       const parsed = [];
-      // 헤더 행에서 열 위치를 자동 감지 (기본값: A열=순서(0), B열=업체명(1), C열=대표자(2), D열=전화번호(3), E열=주소(4))
       let colMap = { name: 1, ceo: 2, phone: 3, address: 4 };
       let headerRowIndex = -1;
 
       for (let i = 0; i < Math.min(5, rows.length); i++) {
         const r = rows[i];
         if (!Array.isArray(r)) continue;
-        const cells = r.map((c) => String(c || '').trim());
-        const nameIdx = cells.findIndex((c) => c.includes('업체') || c.includes('상호') || c.includes('거래처'));
+        const cells = r.map((c) => String(c ?? '').trim());
+        const nameIdx = cells.findIndex(
+          (c) => c.includes('업체') || c.includes('상호') || c.includes('거래처')
+        );
         if (nameIdx !== -1) {
           headerRowIndex = i;
-          const ceoIdx = cells.findIndex((c) => c.includes('대표') || c.includes('담당') || c.includes('성명'));
-          const phoneIdx = cells.findIndex((c) => c.includes('전화') || c.includes('연락') || c.includes('휴대폰'));
-          const addrIdx = cells.findIndex((c) => c.includes('주소') || c.includes('소재지'));
+          const ceoIdx = cells.findIndex(
+            (c) => c.includes('대표') || c.includes('담당') || c.includes('성명')
+          );
+          const phoneIdx = cells.findIndex(
+            (c) => c.includes('전화') || c.includes('연락') || c.includes('휴대폰')
+          );
+          const addrIdx = cells.findIndex(
+            (c) => c.includes('주소') || c.includes('소재지')
+          );
           colMap = {
             name: nameIdx,
             ceo: ceoIdx !== -1 ? ceoIdx : nameIdx + 1,
@@ -1351,19 +1517,26 @@ export default function App() {
         if (!Array.isArray(row) || row.length === 0) return;
         if (idx <= headerRowIndex) return;
 
-        // 헤더가 없었던 경우 첫 행에 '순서/번호'가 들어있으면 건너뜀
-        const firstCell = String(row[0] || '').trim();
-        if (headerRowIndex === -1 && idx === 0 && (firstCell === '순서' || firstCell === '번호' || firstCell.toLowerCase() === 'no')) {
+        const firstCell = String(row[0] ?? '').trim();
+        if (
+          headerRowIndex === -1 &&
+          idx === 0 &&
+          (firstCell === '순서' || firstCell === '번호' || firstCell.toLowerCase() === 'no')
+        ) {
           return;
         }
 
-        // B열(또는 감지된 업체명 열)을 업체명으로 추출 (A열이 순번인 경우 대비)
-        const companyName = String(row[colMap.name] || '').trim();
-        const ceoName = String(row[colMap.ceo] || '').trim();
-        const phone = String(row[colMap.phone] || '').trim();
-        const address = String(row[colMap.address] || '').trim();
+        const companyName = String(row[colMap.name] ?? '').trim();
+        const ceoName = String(row[colMap.ceo] ?? '').trim();
+        const phone = String(row[colMap.phone] ?? '').trim();
+        const address = String(row[colMap.address] ?? '').trim();
 
-        if (!companyName || companyName.includes('발주처') || companyName === '업체명' || companyName === '상호') {
+        if (
+          !companyName ||
+          companyName.includes('발주처') ||
+          companyName === '업체명' ||
+          companyName === '상호'
+        ) {
           return;
         }
 
@@ -1377,34 +1550,43 @@ export default function App() {
 
       if (parsed.length === 0) {
         showToast('엑셀 파일에서 유효한 업체 행을 찾지 못했습니다. (A열: 순서, B열: 업체명 기준)');
+        if (fileInputRef.current) fileInputRef.current.value = '';
         return;
       }
 
       setExcelPreviewRows(parsed);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err) {
-      showToast('엑셀 파일을 읽는 중 오류가 발생했습니다. (.xlsx, .xls, .csv 지원)');
+      console.error('엑셀 처리 오류:', err);
+      showToast(
+        '엑셀 파일 분석 중 문제가 발생했습니다. 파일 암호 설정 여부를 확인해 주세요.'
+      );
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  // 엑셀 파싱 결과 대시보드 일괄 추가 확정
   const handleConfirmExcelImport = () => {
     if (excelPreviewRows.length === 0) return;
 
-    const existingNames = new Set(partners.map((p) => p.companyName.trim()));
+    const existingNames = new Set(
+      partners.map((p) => String(p?.companyName || '').trim()).filter(Boolean)
+    );
     const newItems = [];
 
     excelPreviewRows.forEach((row, idx) => {
-      if (existingNames.has(row.companyName.trim())) return;
-      existingNames.add(row.companyName.trim());
+      const cleanCompanyName = String(row.companyName || '').trim();
+      if (!cleanCompanyName || existingNames.has(cleanCompanyName)) return;
+      existingNames.add(cleanCompanyName);
 
-      const meta = inferPartnerMetadata(row.companyName, row.address, partners.length + idx);
+      const meta = inferPartnerMetadata(cleanCompanyName, row.address, partners.length + idx);
       newItems.push({
         ...meta,
         id: `UP-${Date.now()}-${idx}`,
-        manager: `${row.ceoName} 대표`,
-        ceoName: row.ceoName,
-        phone: row.phone,
-        address: row.address,
+        companyName: cleanCompanyName,
+        manager: `${row.ceoName || '담당자'} 대표`,
+        ceoName: row.ceoName || '담당자',
+        phone: row.phone || '-',
+        address: row.address || '주소 미기재',
       });
     });
 
@@ -1422,7 +1604,6 @@ export default function App() {
     showToast(`엑셀 거래업체 ${newItems.length}개사가 저장되었습니다! (중복 ${excelPreviewRows.length - newItems.length}건 제외)`);
   };
 
-  // SNS 피드 데이터를 거래업체 단가·물량에 반영
   const applySnsFeedToPartner = (feedItem) => {
     const { companyName, parsed } = feedItem;
     const tagKeyword = companyName.trim().replace(/\s+/g, '');
@@ -1487,7 +1668,6 @@ export default function App() {
     showToast(`[${companyName}] SNS 입고/단가 정보가 거래업체 목록에 반영되었습니다.`);
   };
 
-  // 전체 등록 거래처 SNS 일괄 동기화 실행
   const handleSyncAllPartnersSns = () => {
     if (partners.length === 0) {
       showToast('먼저 엑셀 파일을 업로드하여 거래업체를 등록해 주세요.');
@@ -1503,14 +1683,14 @@ export default function App() {
         snsPlatform: 'Instagram',
         snsHandle: `#${tagKeyword}`,
         postedAt: '방금 전',
-        rawText: `${target.companyName} 산지 직송 특선 대방어(9kg급) 12마리 입항 완료! 도매 kg당 25,800원 거래처 선착순 배정합니다.`,
+        rawText: `${target.companyName} 산지 직송 특선 삼치(3kg급) 20상자 입항 완료! 상자당 64,500원 거래처 선착순 배정합니다.`,
         parsed: {
-          species: '대방어',
-          spec: '산지 직송 특선 (9kg급)',
-          unitPrice: 25800,
-          unitLabel: '원/kg',
-          volume: 108,
-          volumeUnit: 'kg',
+          species: '삼치',
+          spec: '산지 직송 특선 삼치 (3kg급)',
+          unitPrice: 64500,
+          unitLabel: '원/상자',
+          volume: 20,
+          volumeUnit: '상자',
           available: true,
         },
         syncedToPartner: false,
@@ -1523,7 +1703,6 @@ export default function App() {
     }, 650);
   };
 
-  // 사용자 직접 SNS 게시물 텍스트 추출 및 등록
   const handleExtractCustomSnsPost = (e) => {
     e.preventDefault();
     if (!snsInputText.trim()) return;
@@ -1552,7 +1731,6 @@ export default function App() {
     setSnsInputText('');
   };
 
-  // 신규 거래업체 개별 추가 핸들러
   const handleAddPartner = (e) => {
     e.preventDefault();
     if (!newPartnerForm.companyName || !newPartnerForm.mainProduct || !newPartnerForm.unitPrice) {
@@ -1612,7 +1790,6 @@ export default function App() {
     showToast(`신규 거래업체 '${newItem.companyName}'이(가) 등록되었습니다.`);
   };
 
-  // 신규 위판 시세 등록 핸들러
   const handleAddAuction = (e) => {
     e.preventDefault();
     if (!newAuctionForm.price) return;
@@ -1656,7 +1833,7 @@ export default function App() {
 
     setSelectedSpecies(targetSpecies);
     setNewAuctionForm({
-      species: '대방어',
+      species: '삼치',
       market: '부산공동어시장',
       price: '',
       volume: '',
@@ -1666,9 +1843,6 @@ export default function App() {
     showToast(`${targetSpecies} (${newAuctionForm.market}) 오늘의 위판 시세가 반영되었습니다.`);
   };
 
-  // ==========================================
-  // 3. 개인 전용 보안 잠금 화면 (PIN 인증 전 표시)
-  // ==========================================
   if (!isUnlocked || isChangingPin) {
     const isSetupMode = !savedPin || isChangingPin;
     return (
@@ -1787,7 +1961,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-14">
-      {/* 알림 토스트 */}
       {toastMessage && (
         <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-700 animate-fade-in">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
@@ -1795,7 +1968,6 @@ export default function App() {
         </div>
       )}
 
-      {/* 상단 내비게이션 헤더 */}
       <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200 shadow-xs">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
           <div className="flex items-center gap-3">
@@ -1807,8 +1979,8 @@ export default function App() {
                 <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
                   수산물 종합 유통·시세 대시보드
                 </h1>
-                <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-sky-50 text-sky-700 border border-sky-200">
-                  실무 운영판
+                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
+                  v2.6 · 리뷰인기메뉴·어종추가검색판
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -1892,9 +2064,6 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
-        {/* ==========================================
-            SECTION 1: Windy 실시간 해상 날씨 & 해역 요약 위젯
-           ========================================== */}
         <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
           <div className="px-5 py-3.5 bg-gradient-to-r from-slate-900 via-sky-950 to-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-2.5">
@@ -1907,7 +2076,6 @@ export default function App() {
               </span>
             </div>
 
-            {/* 해역 선택 탭 */}
             <div className="flex items-center gap-1.5 bg-white/10 p-1 rounded-xl">
               {Object.values(INITIAL_WEATHER_DATA).map((sea) => (
                 <button
@@ -1926,9 +2094,7 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12">
-            {/* 좌측: Windy.com 공식 무료 임베드 위젯 */}
             <div className="lg:col-span-7 relative bg-slate-900 min-h-[300px] sm:min-h-[340px] border-b lg:border-b-0 lg:border-r border-slate-200">
-              {/* Windy 레이어 전환 플로팅 바 */}
               <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-slate-900/85 backdrop-blur px-2 py-1.5 rounded-xl border border-slate-700 shadow-md">
                 <Layers className="w-3.5 h-3.5 text-sky-400 mr-1" />
                 {[
@@ -1959,7 +2125,6 @@ export default function App() {
               />
             </div>
 
-            {/* 우측: 선택 해역 수치 브리핑 */}
             <div className="lg:col-span-5 p-5 flex flex-col justify-between bg-white">
               <div>
                 <div className="flex items-center justify-between mb-4">
@@ -2046,9 +2211,6 @@ export default function App() {
           </div>
         </section>
 
-        {/* ==========================================
-            SECTION 2: 핵심 요약 KPI 카드 4종
-           ========================================== */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
             <div className="flex items-center justify-between mb-3">
@@ -2064,7 +2226,7 @@ export default function App() {
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1.5">
-              주간 누적 {formatNumber(kpiSummary.topItem.volume)} {kpiSummary.topItem.unit} 출고
+              삼치(+6.2%) · 금태(+4.5%) · 전갱이(+3.1%) 추이 반영
             </p>
           </div>
 
@@ -2125,11 +2287,8 @@ export default function App() {
           </div>
         </section>
 
-        {/* ==========================================
-            SECTION 3: 위판장 생선 시세 및 가격 추이
-           ========================================== */}
         <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
             <div>
               <div className="flex items-center gap-2">
                 <BarChart3 className="w-5 h-5 text-sky-600" />
@@ -2138,45 +2297,70 @@ export default function App() {
                 </h2>
               </div>
               <p className="text-xs text-slate-500 mt-1">
-                전국 주요 산지 위판장별 경매 낙찰가 변동 추이와 당일 시세를 비교합니다.
+                기본 어종(삼치·금태·고등어·전갱이) 외 원하는 어종을 검색해 시세 추이를 추가할 수 있습니다.
               </p>
             </div>
 
-            {/* 어종 선택 버튼 */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              {Object.keys(speciesData).map((sp) => {
-                const rate = speciesData[sp].prevDiffRate;
-                const isSelected = selectedSpecies === sp;
-                return (
-                  <button
-                    key={sp}
-                    onClick={() => setSelectedSpecies(sp)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                      isSelected
-                        ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
-                        : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span>{sp}</span>
-                    <span
-                      className={`text-[11px] ${
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+              <form onSubmit={handleSearchAndAddSpecies} className="flex items-center gap-1.5">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="어종 추가 검색 (예: 대방어, 갈치)"
+                    value={speciesSearchInput}
+                    onChange={(e) => setSpeciesSearchInput(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white w-48 sm:w-52"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={isSearchingSpecies || !speciesSearchInput.trim()}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-50 cursor-pointer shrink-0"
+                >
+                  {isSearchingSpecies ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Plus className="w-3.5 h-3.5" />
+                  )}
+                  {isSearchingSpecies ? '조회중' : '어종 추가'}
+                </button>
+              </form>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                {Object.keys(speciesData).map((sp) => {
+                  const rate = speciesData[sp].prevDiffRate;
+                  const isSelected = selectedSpecies === sp;
+                  return (
+                    <button
+                      key={sp}
+                      onClick={() => setSelectedSpecies(sp)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
                         isSelected
-                          ? 'text-sky-100'
-                          : rate >= 0
-                          ? 'text-rose-600'
-                          : 'text-blue-600'
+                          ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                       }`}
                     >
-                      {rate >= 0 ? `▲${rate}%` : `▼${Math.abs(rate)}%`}
-                    </span>
-                  </button>
-                );
-              })}
+                      <span>{sp}</span>
+                      <span
+                        className={`text-[11px] ${
+                          isSelected
+                            ? 'text-sky-100'
+                            : rate >= 0
+                            ? 'text-rose-600'
+                            : 'text-blue-600'
+                        }`}
+                      >
+                        {rate >= 0 ? `▲${rate}%` : `▼${Math.abs(rate)}%`}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-6">
-            {/* 좌측: 가격 추이 차트 */}
             <div className="lg:col-span-7 flex flex-col justify-between bg-slate-50/70 rounded-xl p-4 border border-slate-100">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <div>
@@ -2212,7 +2396,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 기간 토글 */}
                 <div className="inline-flex rounded-lg bg-slate-200/70 p-0.5">
                   <button
                     onClick={() => setChartPeriod('7d')}
@@ -2365,7 +2548,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* 우측: 주요 위판장별 시세 비교 표 */}
             <div className="lg:col-span-5 flex flex-col justify-between">
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -2427,17 +2609,14 @@ export default function App() {
               <div className="mt-4 p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/70 flex items-start gap-2.5">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <p className="text-xs text-amber-900 leading-relaxed">
-                  <strong>매입 참고:</strong> 제주 해상 풍랑주의보 영향으로 은갈치 산지 위판 물량이
-                  전주 대비 약 25% 감소하여 단기 강세가 예상됩니다.
+                  <strong>매입 참고:</strong> 남해안 선망 어획량 변동으로 삼치(+6.2%)와 금태(+4.5%)
+                  산지 위판 시세가 강세를 보이고 있으니 당일 경매 물량을 우선 확인하세요.
                 </p>
               </div>
             </div>
           </div>
         </section>
 
-        {/* ==========================================
-            SECTION 4: 등록 거래업체 SNS 자동 수집 & AI 메뉴 파싱 피드
-           ========================================== */}
         <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
             <div>
@@ -2469,7 +2648,6 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-5">
-            {/* 좌측: 자동 수집된 업체별 SNS 입항·시세 카드 */}
             <div className="lg:col-span-7 space-y-3 max-h-[430px] overflow-y-auto pr-1">
               {snsFeeds.length === 0 ? (
                 <div className="p-8 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-center space-y-2">
@@ -2544,7 +2722,6 @@ export default function App() {
               )}
             </div>
 
-            {/* 우측: 거래업체 인스타 게시글 붙여넣기 AI 자동 추출기 */}
             <div className="lg:col-span-5 bg-gradient-to-b from-slate-50 to-sky-50/40 rounded-xl p-4 border border-slate-200 flex flex-col justify-between">
               <form onSubmit={handleExtractCustomSnsPost} className="space-y-3">
                 <div className="flex items-center gap-2">
@@ -2609,11 +2786,7 @@ export default function App() {
           </div>
         </section>
 
-        {/* ==========================================
-            SECTION 5: 인기 판매 품목 TOP 5 & 발주처/거래업체 전체 관리 (120개사+엑셀추가)
-           ========================================== */}
         <section className="space-y-6">
-          {/* 인기 판매 품목 TOP 5 가로형 카드 */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
               <div>
@@ -2621,7 +2794,7 @@ export default function App() {
                   전체 등록 거래처 인기 판매 품목 TOP 5
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  등록된 {partners.length}개 거래업체 주력 어종 및 출고 물량 합산 순위
+                  인스타·네이버·구글 모두 <strong>[제일 큰 소재지 + 업체명]</strong>으로 검색되며, 주소 아래 주력 상품은 <strong>네이버 5점 리뷰 최다 언급 메뉴</strong>가 표시됩니다.
                 </p>
               </div>
             </div>
@@ -2708,7 +2881,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* 전체 발주처·거래업체 DB 및 인스타·네이버·구글 AI 메뉴 서칭 테이블 */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
             <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
               <div>
@@ -2758,7 +2930,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* 검색 & 지역/어종 필터 바 */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 mb-4">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -2814,7 +2985,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* AI 서칭 상세 브리핑 패널 (선택된 업체가 있을 때 표시) */}
             {selectedPartnerDetail && (
               <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-indigo-50 via-sky-50 to-white border border-indigo-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
                 <div className="space-y-1.5">
@@ -2834,7 +3004,14 @@ export default function App() {
                     {selectedPartnerDetail.aiSummary}
                   </p>
                   <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span className="text-[11px] font-semibold text-slate-500 mr-1">네이버 확인 메뉴:</span>
+                    <span className="text-[11px] font-semibold text-slate-500 mr-1">
+                      네이버 5점 리뷰 인기 메뉴:
+                    </span>
+                    {selectedPartnerDetail.topReviewMenu && (
+                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
+                        ★ 1위: {selectedPartnerDetail.topReviewMenu}
+                      </span>
+                    )}
                     {(selectedPartnerDetail.searchedMenus || []).length > 0 ? (
                       selectedPartnerDetail.searchedMenus.map((menu, i) => (
                         <span
@@ -2898,7 +3075,6 @@ export default function App() {
               </div>
             )}
 
-            {/* 거래업체(발주처) 목록 테이블 */}
             <div className="overflow-x-auto rounded-xl border border-slate-200">
               <table className="w-full text-left border-collapse">
                 <thead>
@@ -2961,7 +3137,6 @@ export default function App() {
 
                       return (
                         <tr key={partner.id} className="hover:bg-slate-50/90 transition-colors">
-                          {/* 업체명 & 연락처 */}
                           <td className="py-3 px-3.5 align-top">
                             <div className="font-bold text-slate-900 text-sm">
                               {partner.companyName}
@@ -2980,15 +3155,19 @@ export default function App() {
                             </div>
                           </td>
 
-                          {/* 주소 */}
                           <td className="py-3 px-3 align-top max-w-[210px]">
                             <div className="text-slate-700 leading-snug">{partner.address}</div>
-                            <span className="inline-block mt-1 px-2 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] font-semibold">
-                              주력: {partner.category} · {formatNumber(partner.unitPrice)}{partner.unitLabel}
-                            </span>
+                            {partner.topReviewMenu ? (
+                              <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold">
+                                ★ 5점 리뷰 최다: {partner.topReviewMenu}
+                              </span>
+                            ) : (
+                              <span className="inline-block mt-1 px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium">
+                                5점 리뷰 메뉴: 서칭 전
+                              </span>
+                            )}
                           </td>
 
-                          {/* 판매 메뉴 (네이버 검색 기반 AI 정리) */}
                           <td className="py-3 px-3 align-top max-w-[240px]">
                             {partner.isSearched ? (
                               partner.searchedMenus?.length > 0 ? (
@@ -2997,9 +3176,13 @@ export default function App() {
                                     {partner.searchedMenus.map((m, idx) => (
                                       <span
                                         key={idx}
-                                        className="inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                        className={`inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
+                                          idx === 0
+                                            ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                        }`}
                                       >
-                                        {m}
+                                        {idx === 0 ? `★ ${m}` : m}
                                       </span>
                                     ))}
                                   </div>
@@ -3026,15 +3209,14 @@ export default function App() {
                               )
                             ) : (
                               <div>
-                                <div className="font-medium text-slate-700">{partner.mainProduct}</div>
+                                <div className="font-medium text-slate-500">{partner.mainProduct}</div>
                                 <span className="text-[11px] text-slate-400">
-                                  우측 &apos;메뉴 서칭&apos; 클릭 시 네이버 실제 메뉴 정리
+                                  우측 &apos;메뉴 서칭&apos; 클릭 시 네이버 5점 리뷰 인기 메뉴 정리
                                 </span>
                               </div>
                             )}
                           </td>
 
-                          {/* 인스타(앱) / 네이버 / 구글 ('제일 큰 소재지 + 업체명' 통합 검색) */}
                           <td className="py-3 px-3 align-top">
                             <div className="flex flex-wrap items-center gap-1.5">
                               <a
@@ -3078,7 +3260,6 @@ export default function App() {
                             </div>
                           </td>
 
-                          {/* AI 메뉴·SNS 서칭 버튼 */}
                           <td className="py-3 px-3.5 align-top text-center">
                             <button
                               onClick={() => handleSearchSinglePartnerMenu(partner)}
@@ -3115,7 +3296,6 @@ export default function App() {
               </table>
             </div>
 
-            {/* 페이지네이션 컨트롤 */}
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 text-xs text-slate-500">
               <div>
                 전체 <strong>{filteredPartners.length}</strong>개 업체 중{' '}
@@ -3163,9 +3343,6 @@ export default function App() {
         </section>
       </main>
 
-      {/* ==========================================
-          MODAL 0: PC·모바일 실시간 동기화(Supabase) 설정 모달
-         ========================================== */}
       {activeModal === 'cloud' && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4">
@@ -3259,9 +3436,6 @@ alter table seafood_state disable row level security;`}
         </div>
       )}
 
-      {/* ==========================================
-          MODAL 1: 엑셀(.xlsx / .csv) 거래업체 일괄 업로드 모달
-         ========================================== */}
       {activeModal === 'excel' && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
@@ -3373,9 +3547,6 @@ alter table seafood_state disable row level security;`}
         </div>
       )}
 
-      {/* ==========================================
-          MODAL 2: 신규 거래업체 개별 등록 모달
-         ========================================== */}
       {activeModal === 'partner' && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
@@ -3411,7 +3582,7 @@ alter table seafood_state disable row level security;`}
               <div className="p-3 rounded-xl bg-pink-50/50 border border-pink-100 space-y-2">
                 <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
                   <Instagram className="w-3.5 h-3.5 text-pink-600" />
-                  SNS 및 블로그 채널 연동 (선택 — 비워두면 &apos;인스타 없음&apos; 표시)
+                  SNS 및 블로그 채널 연동 (선택)
                 </div>
                 <div className="grid grid-cols-2 gap-2.5">
                   <div>
@@ -3420,7 +3591,7 @@ alter table seafood_state disable row level security;`}
                     </label>
                     <input
                       type="text"
-                      placeholder="@account_id (없으면 비움)"
+                      placeholder="@account_id"
                       value={newPartnerForm.snsHandle}
                       onChange={(e) =>
                         setNewPartnerForm({ ...newPartnerForm, snsHandle: e.target.value })
@@ -3595,9 +3766,6 @@ alter table seafood_state disable row level security;`}
         </div>
       )}
 
-      {/* ==========================================
-          MODAL 3: 위판장 시세 업데이트 모달
-         ========================================== */}
       {activeModal === 'auction' && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
