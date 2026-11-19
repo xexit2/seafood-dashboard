@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 
-// 미리보기 및 Vite 환경에서 100% 호환되는 순수 함수형 아이콘 컴포넌트
+// 미리보기 및 Vite 환경에서 100% 호환되는 순수 함수형 인라인 SVG 아이콘 컴포넌트
 const SvgIcon = ({ children, className = 'w-4 h-4' }) => (
   <svg
     viewBox="0 0 24 24"
@@ -263,7 +263,6 @@ const Database = ({ className }) => (
     <path d="M3 12A9 3 0 0 0 21 12" />
   </SvgIcon>
 );
-
 const Instagram = ({ className }) => (
   <SvgIcon className={className}>
     <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
@@ -273,6 +272,9 @@ const Instagram = ({ className }) => (
 );
 
 const appId = 'seafood-dashboard-app';
+
+// [보안 기본 마스터 PIN] 관리자가 원하는 4자리 숫자로 변경 가능 (클라우드 DB에 저장된 PIN이 있으면 최우선 적용됨)
+const DEFAULT_MASTER_PIN = '1234';
 
 // 대표님 전용 Supabase 실시간 동기화 기본 설정 (PC · 모바일 무설정 자동 연동)
 const DEFAULT_SUPABASE_URL = 'https://xoprcktqaekcmkuhdehg.supabase.co';
@@ -687,7 +689,12 @@ function inferPartnerMetadata(companyName = '', address = '', idx = 0) {
     unitPrice = 64000;
     unitLabel = '원/상자';
     volumeUnit = '상자';
-  } else if (combined.includes('금태') || combined.includes('눈볼대') || combined.includes('일식') || combined.includes('오마카세')) {
+  } else if (
+    combined.includes('금태') ||
+    combined.includes('눈볼대') ||
+    combined.includes('일식') ||
+    combined.includes('오마카세')
+  ) {
     category = '금태';
     unitPrice = 48500;
     unitLabel = '원/kg';
@@ -727,7 +734,11 @@ function parseSnsPostText(rawText = '') {
   const speciesList = ['삼치', '금태', '고등어', '전갱이'];
   let species = '고등어';
   for (const sp of speciesList) {
-    if (text.includes(sp) || (sp === '금태' && text.includes('눈볼대')) || (sp === '전갱이' && text.includes('아지'))) {
+    if (
+      text.includes(sp) ||
+      (sp === '금태' && text.includes('눈볼대')) ||
+      (sp === '전갱이' && text.includes('아지'))
+    ) {
       species = sp;
       break;
     }
@@ -835,7 +846,7 @@ async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
           instagramUrl: defaultInstaSearchUrl,
           blogUrl: naverPlaceMenuUrl,
           summary: !apiKey
-            ? `[${combinedQuery}] 실제 사이트에서 AI 자동 분석을 쓰려면 상단 [동기화 설정]에 무료 Gemini API 키를 입력해 주세요. 아래 '네이버 메뉴' 버튼으로 즉시 확인 가능합니다.`
+            ? `[${combinedQuery}] 실제 사이트에서 AI 자동 분석을 쓰려면 상단 [동기화 · AI키 설정]에 Gemini API 키를 입력해 주세요. 아래 '네이버 메뉴' 버튼으로 즉시 확인 가능합니다.`
             : `[${combinedQuery}] 네이버 리뷰·메뉴 검색 결과를 불러오지 못했습니다. 우측 '네이버 메뉴' 버튼으로 바로 확인하세요.`,
         };
       }
@@ -851,7 +862,6 @@ async function fetchSpeciesAuctionTrend(speciesKeyword, geminiApiKey = '') {
     : 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=';
   const reqHeaders = { 'Content-Type': 'application/json' };
   if (apiKey) {
-    // 최신 Google AI Studio AQ. 인증 키는 x-goog-api-key 헤더로 전송해야 정상 작동
     reqHeaders['x-goog-api-key'] = apiKey;
   }
 
@@ -942,7 +952,6 @@ async function fetchSpeciesAuctionTrend(speciesKeyword, geminiApiKey = '') {
     }
   }
 
-  // 실제 사이트에서 Gemini API 키가 없거나 일시 차단된 경우에도 어종 탭이 즉시 추가되도록 기본 표준 시세 템플릿 반환
   return {
     isFallback: true,
     data: {
@@ -994,8 +1003,10 @@ export default function App() {
   const [diagResults, setDiagResults] = useState(null);
   const [isRunningDiag, setIsRunningDiag] = useState(false);
 
-  const [savedPin, setSavedPin] = useState(null);
+  // [v3.0 마스터 PIN 보안] 신규 기기에서도 절대 '새 비밀번호 생성' 화면이 열리지 않도록 기본 마스터 PIN으로 초기화
+  const [savedPin, setSavedPin] = useState(DEFAULT_MASTER_PIN);
   const [isUnlocked, setIsUnlocked] = useState(false);
+  const [currentPinForChange, setCurrentPinForChange] = useState('');
   const [pinInput, setPinInput] = useState('');
   const [pinConfirmInput, setPinConfirmInput] = useState('');
   const [pinError, setPinError] = useState('');
@@ -1061,6 +1072,21 @@ export default function App() {
     setTimeout(() => setToastMessage(''), 4000);
   };
 
+  // Supabase 공통 헤더 빌더 (public 스키마 고정으로 graphql_public 충돌 원천 방지)
+  const buildSupabaseHeaders = (cleanKey, extra = {}) => {
+    const headers = {
+      apikey: cleanKey,
+      Accept: 'application/json',
+      'Accept-Profile': 'public',
+      'Content-Profile': 'public',
+      ...extra,
+    };
+    if (cleanKey.startsWith('eyJ')) {
+      headers.Authorization = `Bearer ${cleanKey}`;
+    }
+    return headers;
+  };
+
   useEffect(() => {
     let loadedSbUrl = DEFAULT_SUPABASE_URL;
     let loadedSbKey = DEFAULT_SUPABASE_ANON_KEY;
@@ -1074,7 +1100,10 @@ export default function App() {
       if (localSb) {
         const parsedSb = JSON.parse(localSb);
         const normalizedSb = {
-          url: (parsedSb.url || DEFAULT_SUPABASE_URL).trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, ''),
+          url: (parsedSb.url || DEFAULT_SUPABASE_URL)
+            .trim()
+            .replace(/\/rest\/v1\/?$/i, '')
+            .replace(/\/$/, ''),
           anonKey: (parsedSb.anonKey || DEFAULT_SUPABASE_ANON_KEY).trim(),
           geminiKey: (parsedSb.geminiKey || '').trim(),
         };
@@ -1093,7 +1122,9 @@ export default function App() {
         );
       }
 
-      if (localPin) setSavedPin(localPin);
+      if (localPin && /^\d{4}$/.test(localPin)) {
+        setSavedPin(localPin);
+      }
       if (localPartners) {
         const parsedPartners = JSON.parse(localPartners);
         setPartners(parsedPartners);
@@ -1109,7 +1140,6 @@ export default function App() {
             setSelectedSpecies(Object.keys(parsedSp)[0]);
           }
         } else {
-          // 이전 버전(대방어·은갈치 등) 초기 데이터는 새 기본 4종(삼치·금태·고등어·전갱이)으로 자동 갱신
           setSpeciesData(INITIAL_SPECIES_DATA);
           setSelectedSpecies('삼치');
           localStorage.setItem(`${appId}_species`, JSON.stringify(INITIAL_SPECIES_DATA));
@@ -1134,16 +1164,9 @@ export default function App() {
       setSyncStatus('클라우드 동기화 중...');
       const cleanUrl = url.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
       const cleanKey = anonKey.trim();
-      const headers = {
-        apikey: cleanKey,
-        Accept: 'application/json',
-      };
-      if (cleanKey.startsWith('eyJ')) {
-        headers.Authorization = `Bearer ${cleanKey}`;
-      }
 
       const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?id=eq.main&select=*`, {
-        headers,
+        headers: buildSupabaseHeaders(cleanKey),
       });
       if (!res.ok) {
         const errText = await res.text().catch(() => '');
@@ -1152,13 +1175,17 @@ export default function App() {
       const rows = await res.json();
       if (Array.isArray(rows) && rows.length > 0 && rows[0].payload) {
         const remote = rows[0].payload;
-        if (remote.pin) {
-          setSavedPin(remote.pin);
-          localStorage.setItem(`${appId}_pin`, remote.pin);
+        if (remote.pin && /^\d{4}$/.test(String(remote.pin))) {
+          const verifiedPin = String(remote.pin);
+          setSavedPin(verifiedPin);
+          localStorage.setItem(`${appId}_pin`, verifiedPin);
         }
         if (Array.isArray(remote.partners)) {
           setPartners(remote.partners);
           localStorage.setItem(`${appId}_partners`, JSON.stringify(remote.partners));
+          if (remote.partners.length > 0) {
+            setSnsInputCompany((prev) => prev || remote.partners[0].companyName);
+          }
         }
         if (remote.speciesData && !isLegacySpeciesMap(remote.speciesData)) {
           setSpeciesData(remote.speciesData);
@@ -1212,19 +1239,13 @@ export default function App() {
         setSyncStatus('클라우드 저장 중...');
         const cleanUrl = activeSb.url.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
         const cleanKey = activeSb.anonKey.trim();
-        const headers = {
-          apikey: cleanKey,
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-          Prefer: 'resolution=merge-duplicates,return=minimal',
-        };
-        if (cleanKey.startsWith('eyJ')) {
-          headers.Authorization = `Bearer ${cleanKey}`;
-        }
 
         const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?on_conflict=id`, {
           method: 'POST',
-          headers,
+          headers: buildSupabaseHeaders(cleanKey, {
+            'Content-Type': 'application/json',
+            Prefer: 'resolution=merge-duplicates,return=minimal',
+          }),
           body: JSON.stringify({
             id: 'main',
             payload: {
@@ -1273,7 +1294,7 @@ export default function App() {
     setSyncStatus('브라우저 자동 저장됨');
   };
 
-  // Supabase 읽기/쓰기 및 최신 AQ. Gemini API 키 자체 연결 진단 테스트
+  // Supabase 읽기/쓰기(public 스키마 명시) 및 최신 AQ. Gemini API 키 자체 연결 진단 테스트
   const handleRunConnectionDiagnostics = async () => {
     setIsRunningDiag(true);
     const cleanUrl = (supabaseForm.url || '')
@@ -1289,14 +1310,6 @@ export default function App() {
       gemini: { ok: false, detail: '미실행' },
     };
 
-    const sbHeaders = {
-      apikey: cleanSbKey,
-      Accept: 'application/json',
-    };
-    if (cleanSbKey.startsWith('eyJ')) {
-      sbHeaders.Authorization = `Bearer ${cleanSbKey}`;
-    }
-
     // 1. Supabase 읽기 테스트
     if (!cleanUrl || !cleanSbKey) {
       results.sbRead = { ok: false, detail: 'URL 또는 Anon Key가 비어 있습니다.' };
@@ -1304,11 +1317,11 @@ export default function App() {
       try {
         const res = await fetch(
           `${cleanUrl}/rest/v1/seafood_state?id=eq.main&select=id,updated_at`,
-          { headers: sbHeaders }
+          { headers: buildSupabaseHeaders(cleanSbKey) }
         );
         const text = await res.text().catch(() => '');
         if (res.ok) {
-          results.sbRead = { ok: true, detail: `HTTP ${res.status} 정상 (데이터 조회 성공)` };
+          results.sbRead = { ok: true, detail: `HTTP ${res.status} 정상 (public 스키마 조회 성공)` };
         } else {
           results.sbRead = { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 120)}` };
         }
@@ -1324,11 +1337,10 @@ export default function App() {
       try {
         const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?on_conflict=id`, {
           method: 'POST',
-          headers: {
-            ...sbHeaders,
+          headers: buildSupabaseHeaders(cleanSbKey, {
             'Content-Type': 'application/json',
             Prefer: 'resolution=merge-duplicates,return=minimal',
-          },
+          }),
           body: JSON.stringify({
             id: 'main',
             payload: {
@@ -1416,31 +1428,45 @@ export default function App() {
 
   const handleLockScreen = () => {
     setIsUnlocked(false);
+    setIsChangingPin(false);
+    setCurrentPinForChange('');
     setPinInput('');
     setPinConfirmInput('');
     setPinError('');
   };
 
+  // [v3.0 마스터 PIN 검증 및 변경 핸들러]
   const handlePinSubmit = async (e) => {
     e.preventDefault();
-    if (pinInput.length !== 4 || !/^\d{4}$/.test(pinInput)) {
-      setPinError('4자리 숫자를 정확히 입력해주세요.');
-      return;
-    }
 
-    if (!savedPin || isChangingPin) {
+    // 1. 잠금 해제된 관리자가 [PIN 변경] 모드일 때만 현재 PIN 검증 후 새 PIN 저장 허용
+    if (isUnlocked && isChangingPin) {
+      if (currentPinForChange !== savedPin) {
+        setPinError('현재 4자리 비밀번호(PIN)가 일치하지 않습니다.');
+        return;
+      }
+      if (pinInput.length !== 4 || !/^\d{4}$/.test(pinInput)) {
+        setPinError('새 비밀번호는 4자리 숫자로 정확히 입력해주세요.');
+        return;
+      }
       if (pinInput !== pinConfirmInput) {
-        setPinError('확인용 PIN 번호가 일치하지 않습니다.');
+        setPinError('새 PIN 번호 확인이 일치하지 않습니다.');
         return;
       }
       setSavedPin(pinInput);
       setIsChangingPin(false);
-      setIsUnlocked(true);
+      setCurrentPinForChange('');
       setPinInput('');
       setPinConfirmInput('');
       setPinError('');
       await persistDashboardState({ pin: pinInput });
-      showToast('개인 보안 PIN 번호가 안전하게 설정되었습니다.');
+      showToast('마스터 PIN 번호가 변경되어 PC·모바일 모든 기기에 즉시 적용되었습니다.');
+      return;
+    }
+
+    // 2. 잠금 화면: 신규 기기 포함 모든 환경에서 마스터 PIN 일치 여부만 검증 (임의 생성 불가)
+    if (pinInput.length !== 4 || !/^\d{4}$/.test(pinInput)) {
+      setPinError('4자리 숫자를 정확히 입력해주세요.');
       return;
     }
 
@@ -1449,7 +1475,7 @@ export default function App() {
       setPinInput('');
       setPinError('');
     } else {
-      setPinError('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
+      setPinError('비밀번호가 일치하지 않습니다. 승인된 사용자만 접속할 수 있습니다.');
       setPinInput('');
     }
   };
@@ -1502,7 +1528,7 @@ export default function App() {
 
       if (res.isFallback) {
         showToast(
-          `'${res.data.name}' 탭이 추가되었습니다! (실시간 AI 시세 자동 조회는 상단 [동기화 설정]에 Gemini API 키 입력 시 활성화됩니다)`
+          `'${res.data.name}' 탭이 추가되었습니다! (실시간 AI 시세 자동 조회는 상단 [동기화 · AI키 설정]에 Gemini API 키 입력 시 활성화됩니다)`
         );
       } else {
         showToast(`'${res.data.name}' 전국 위판장 시세 및 가격 추이가 추가되었습니다!`);
@@ -1804,9 +1830,7 @@ export default function App() {
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err) {
       console.error('엑셀 처리 오류:', err);
-      showToast(
-        '엑셀 파일 분석 중 문제가 발생했습니다. 파일 암호 설정 여부를 확인해 주세요.'
-      );
+      showToast('엑셀 파일 분석 중 문제가 발생했습니다. 파일 암호 설정 여부를 확인해 주세요.');
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -1847,7 +1871,9 @@ export default function App() {
     setExcelPreviewRows([]);
     setExcelFileName('');
     setActiveModal(null);
-    showToast(`엑셀 거래업체 ${newItems.length}개사가 저장되었습니다! (중복 ${excelPreviewRows.length - newItems.length}건 제외)`);
+    showToast(
+      `엑셀 거래업체 ${newItems.length}개사가 저장되었습니다! (중복 ${excelPreviewRows.length - newItems.length}건 제외)`
+    );
   };
 
   const applySnsFeedToPartner = (feedItem) => {
@@ -1945,7 +1971,7 @@ export default function App() {
       setSnsFeeds(nextFeeds);
       persistDashboardState({ snsFeeds: nextFeeds });
       setIsSyncingSns(false);
-      showToast(`등록 거래처 SNS 최신 게시물 수집 및 AI 구조화가 완료되었습니다.`);
+      showToast('등록 거래처 SNS 최신 게시물 수집 및 AI 구조화가 완료되었습니다.');
     }, 650);
   };
 
@@ -2089,24 +2115,28 @@ export default function App() {
     showToast(`${targetSpecies} (${newAuctionForm.market}) 오늘의 위판 시세가 반영되었습니다.`);
   };
 
-  if (!isUnlocked || isChangingPin) {
-    const isSetupMode = !savedPin || isChangingPin;
+  // [보안 게이트] 미인증 상태에서는 오직 4자리 마스터 PIN 입력 화면만 노출 (신규 기기 임의 생성 원천 차단)
+  if (!isUnlocked || (isUnlocked && isChangingPin)) {
+    const isChangeMode = isUnlocked && isChangingPin;
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans text-slate-800">
         <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
           <div className="bg-gradient-to-r from-sky-700 to-blue-800 p-6 text-white text-center">
             <div className="w-14 h-14 bg-white/15 backdrop-blur rounded-2xl flex items-center justify-center mx-auto mb-3 border border-white/25">
-              {isSetupMode ? (
+              {isChangeMode ? (
                 <KeyRound className="w-7 h-7 text-sky-200" />
               ) : (
                 <Lock className="w-7 h-7 text-sky-200" />
               )}
             </div>
+            <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white/15 text-sky-100 border border-white/20 mb-2">
+              v3.0 · 마스터 PIN 보안 강화판
+            </div>
             <h1 className="text-xl font-bold tracking-tight">수산물 종합 유통·시세 대시보드</h1>
             <p className="text-xs text-sky-100 mt-1">
-              {isSetupMode
-                ? '대표님 전용 4자리 개인 비밀번호(PIN)를 설정하세요'
-                : '거래처 단가 및 시세 보호를 위해 PIN 번호를 입력하세요'}
+              {isChangeMode
+                ? '현재 마스터 PIN 확인 후 새 4자리 비밀번호로 변경합니다'
+                : '승인된 사용자만 접속 가능합니다 · 4자리 비밀번호(PIN)를 입력하세요'}
             </p>
           </div>
 
@@ -2114,19 +2144,40 @@ export default function App() {
             {!isDataLoaded ? (
               <div className="py-8 flex flex-col items-center justify-center text-slate-500 gap-2">
                 <Loader2 className="w-6 h-6 animate-spin text-sky-600" />
-                <span className="text-xs">보안 설정 및 저장 데이터 불러오는 중...</span>
+                <span className="text-xs">클라우드 마스터 보안 정책 및 데이터 동기화 중...</span>
               </div>
             ) : (
               <>
+                {isChangeMode && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                      현재 4자리 비밀번호(PIN) 확인
+                    </label>
+                    <input
+                      type="password"
+                      inputMode="numeric"
+                      maxLength={4}
+                      autoFocus
+                      placeholder="••••"
+                      value={currentPinForChange}
+                      onChange={(e) => {
+                        setCurrentPinForChange(e.target.value.replace(/\D/g, '').slice(0, 4));
+                        setPinError('');
+                      }}
+                      className="w-full text-center text-2xl tracking-[0.6em] font-bold py-3 border border-slate-300 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 bg-slate-50"
+                    />
+                  </div>
+                )}
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                    {isSetupMode ? '새 4자리 숫자 PIN 입력' : '4자리 비밀번호(PIN) 입력'}
+                    {isChangeMode ? '새 4자리 숫자 PIN 입력' : '4자리 비밀번호(PIN) 입력'}
                   </label>
                   <input
                     type="password"
                     inputMode="numeric"
                     maxLength={4}
-                    autoFocus
+                    autoFocus={!isChangeMode}
                     placeholder="••••"
                     value={pinInput}
                     onChange={(e) => {
@@ -2137,10 +2188,10 @@ export default function App() {
                   />
                 </div>
 
-                {isSetupMode && (
+                {isChangeMode && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                      4자리 숫자 PIN 다시 입력 (확인)
+                      새 4자리 숫자 PIN 다시 입력 (확인)
                     </label>
                     <input
                       type="password"
@@ -2168,15 +2219,15 @@ export default function App() {
                   className="w-full py-3 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-xl shadow-md transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
                   <ShieldCheck className="w-4 h-4" />
-                  {isSetupMode ? '개인 PIN 설정 완료 및 시작하기' : '잠금 해제 후 대시보드 열기'}
+                  {isChangeMode ? '마스터 PIN 변경 및 전 기기 동기화' : '잠금 해제 후 대시보드 열기'}
                 </button>
 
-                {isChangingPin && savedPin && (
+                {isChangeMode && (
                   <button
                     type="button"
                     onClick={() => {
                       setIsChangingPin(false);
-                      setIsUnlocked(true);
+                      setCurrentPinForChange('');
                       setPinInput('');
                       setPinConfirmInput('');
                       setPinError('');
@@ -2190,11 +2241,11 @@ export default function App() {
                 <div className="pt-3 border-t border-slate-100 text-[11px] text-slate-400 space-y-1">
                   <p className="flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                    업로드한 엑셀 거래처와 AI 메뉴 검색 결과는 자동 저장됩니다.
+                    새로운 기기·브라우저에서는 임의로 비밀번호를 새로 생성할 수 없습니다.
                   </p>
                   <p className="flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                    모바일 브라우저에서 &apos;홈 화면에 추가&apos; 시 앱처럼 실행됩니다.
+                    클라우드 동기화 상태: {syncStatus}
                   </p>
                 </div>
               </>
@@ -2208,7 +2259,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-14">
       {toastMessage && (
-        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-700 animate-fade-in max-w-md">
+        <div className="fixed bottom-5 right-5 z-50 flex items-center gap-2.5 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-700 max-w-md">
           <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
           <span className="text-xs sm:text-sm font-medium leading-snug">{toastMessage}</span>
         </div>
@@ -2221,16 +2272,18 @@ export default function App() {
               <Anchor className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
                   수산물 종합 유통·시세 대시보드
                 </h1>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                  v2.9 · AQ신규키·자체연결진단판
+                  v3.0 · 마스터 PIN 보안 강화판
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
-                <span className="hidden sm:inline">거래업체 {partners.length}개사 통합 관리 · 위판장 시세 · Windy 해상 기상</span>
+                <span className="hidden sm:inline">
+                  거래업체 {partners.length}개사 통합 관리 · 위판장 시세 · Windy 해상 기상
+                </span>
                 <button
                   onClick={() => setActiveModal('cloud')}
                   className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium cursor-pointer transition-colors ${
@@ -2287,11 +2340,12 @@ export default function App() {
             <button
               onClick={() => {
                 setIsChangingPin(true);
+                setCurrentPinForChange('');
                 setPinInput('');
                 setPinConfirmInput('');
                 setPinError('');
               }}
-              title="개인 PIN 비밀번호 변경"
+              title="마스터 PIN 비밀번호 변경"
               className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
             >
               <KeyRound className="w-3.5 h-3.5" />
@@ -2322,7 +2376,7 @@ export default function App() {
               </span>
             </div>
 
-            <div className="flex items-center gap-1.5 bg-white/10 p-1 rounded-xl">
+            <div className="flex items-center gap-1.5 bg-white/10 p-1 rounded-xl flex-wrap">
               {Object.values(INITIAL_WEATHER_DATA).map((sea) => (
                 <button
                   key={sea.id}
@@ -2485,7 +2539,9 @@ export default function App() {
             </div>
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold text-slate-900">
-                {Number(kpiSummary.avgChange) > 0 ? `+${kpiSummary.avgChange}%` : `${kpiSummary.avgChange}%`}
+                {Number(kpiSummary.avgChange) > 0
+                  ? `+${kpiSummary.avgChange}%`
+                  : `${kpiSummary.avgChange}%`}
               </span>
               <span className="text-xs font-medium text-slate-500">전일 위판가 대비</span>
             </div>
@@ -2874,7 +2930,7 @@ export default function App() {
         <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="w-7 h-7 rounded-lg bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600 text-white flex items-center justify-center shadow-2xs">
                   <Instagram className="w-4 h-4" />
                 </span>
@@ -3701,8 +3757,8 @@ export default function App() {
                 {diagResults && (
                   <div className="space-y-1.5 pt-1 border-t border-slate-200">
                     {[
-                      { label: '1. Supabase 읽기', res: diagResults.sbRead },
-                      { label: '2. Supabase 쓰기', res: diagResults.sbWrite },
+                      { label: '1. Supabase 읽기 (public)', res: diagResults.sbRead },
+                      { label: '2. Supabase 쓰기 (public)', res: diagResults.sbWrite },
                       { label: '3. Gemini AI 키', res: diagResults.gemini },
                     ].map((row) => (
                       <div
