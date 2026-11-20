@@ -420,7 +420,8 @@ export default function App() {
     const updatedMap = { ...safeSpeciesData };
     let liveUpdatedCount = 0;
 
-    for (const spKey of keys) {
+  for (let i = 0; i < keys.length; i++) {
+      const spKey = keys[i];
       const existing = safeSpeciesData[spKey];
       const marketNames =
         Array.isArray(existing?.markets) && existing.markets.length > 0
@@ -436,6 +437,11 @@ export default function App() {
       if (res && res.data) {
         updatedMap[spKey] = res.data;
         if (!res.isFallback) liveUpdatedCount += 1;
+      }
+
+      // 무료 API 분당 호출 제한(429) 방지를 위해 어종 간 1.5초 간격 유지
+      if (i < keys.length - 1) {
+        await new Promise((r) => setTimeout(r, 1500));
       }
     }
 

@@ -26,55 +26,58 @@ function parseFlexibleJson(rawText) {
 
 async function callGeminiWithFallback(userQuery, geminiApiKey = '', useSearch = true) {
   const apiKey = (geminiApiKey || '').trim();
-  const models = ['gemini-3-flash-preview', 'gemini-2.5-flash'];
+  if (!apiKey) {
+    return { ok: false, text: '', error: 'Gemini API 키가 설정되지 않았습니다.' };
+  }
+
+  // 무료 할당량 효율이 높은 모델 순서로 배치
+  const models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3-flash-preview'];
   let lastErrMsg = '';
 
   for (const model of models) {
     const baseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-    const apiUrl = apiKey ? baseUrl : `${baseUrl}?key=`;
-    const reqHeaders = { 'Content-Type': 'application/json' };
-    if (apiKey) {
-      reqHeaders['x-goog-api-key'] = apiKey;
-    }
+    const reqHeaders = {
+      'Content-Type': 'application/json',
+      'x-goog-api-key': apiKey,
+    };
 
     const payload = {
       contents: [{ parts: [{ text: userQuery }] }],
       ...(useSearch ? { tools: [{ google_search: {} }] } : {}),
     };
 
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: reqHeaders,
-          body: JSON.stringify(payload),
-        });
+    try {
+      const response = await fetch(baseUrl, {
+        method: 'POST',
+        headers: reqHeaders,
+        body: JSON.stringify(payload),
+      });
 
-        if (!response.ok) {
-          const errBody = await response.text().catch(() => '');
-          lastErrMsg = `HTTP ${response.status}: ${errBody.slice(0, 120)}`;
-          if (response.status === 429 && attempt === 0) {
-            await new Promise((r) => setTimeout(r, 1500));
-            continue;
-          }
-          break;
+      if (!response.ok) {
+        const errBody = await response.text().catch(() => '');
+        lastErrMsg = `HTTP ${response.status}: ${errBody.slice(0, 120)}`;
+        // 429(분당 한도 초과) 시 2.5초 대기 후 다음 모델로 전환
+        if (response.status === 429) {
+          await new Promise((r) => setTimeout(r, 2500));
+          continue;
         }
-
-        const result = await response.json();
-        const parts = result?.candidates?.[0]?.content?.parts || [];
-        const rawText = parts.map((p) => p.text || '').join('\n').trim();
-        if (rawText) {
-          return { ok: true, text: rawText, error: '' };
-        }
-        lastErrMsg = '응답 텍스트 비어 있음';
-      } catch (err) {
-        lastErrMsg = err?.message || '네트워크 오류';
-        await new Promise((r) => setTimeout(r, 600));
+        continue;
       }
+
+      const result = await response.json();
+      const parts = result?.candidates?.[0]?.content?.parts || [];
+      const rawText = parts.map((p) => p.text || '').join('\n').trim();
+      if (rawText) {
+        return { ok: true, text: rawText, error: '' };
+      }
+      lastErrMsg = '응답 텍스트 비어 있음';
+    } catch (err) {
+      lastErrMsg = err?.message || '네트워크 오류';
+      await new Promise((r) => setTimeout(r, 800));
     }
   }
 
-  return { ok: false, text: '', error: lastErrMsg || 'API 응답 실패' };
+  return { ok: false, text: '', error: lastErrMsg || 'API 호출 한도 초과(429)' };
 }
 
 export async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
