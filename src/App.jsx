@@ -724,7 +724,7 @@ export default function App() {
     abortSearchRef.current = false;
     setIsSearchingTopIngredients(true);
 
-    const batchSize = 5;
+    const batchSize = 15;
     const total = partners.length;
     setSearchProgress({ done: 0, total });
 

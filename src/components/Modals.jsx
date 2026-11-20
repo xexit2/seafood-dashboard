@@ -94,7 +94,7 @@ export default function Modals({
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500">배치 실행 계획</span>
                   <strong className="text-slate-900">
-                    5개사씩 묶음 · 총 {Math.ceil(partnersCount / 5)}회 API 호출
+                    5개사씩 묶음 · 총 {Math.ceil(partnersCount / 15)}회 API 호출
                   </strong>
                 </div>
                 <div className="flex items-center justify-between">
