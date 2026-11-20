@@ -137,10 +137,7 @@ export default function PartnerTableSection({
               className="pl-8 pr-6 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
             >
               <option value="전체">전체 품목</option>
-        {(Array.isArray(speciesKeys) && speciesKeys.length > 0
-                ? speciesKeys
-                : Object.keys(speciesData || {})
-              ).map((cat) => (
+{Object.keys(speciesData || {}).map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>
