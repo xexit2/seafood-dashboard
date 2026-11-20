@@ -392,15 +392,15 @@ export async function fetchPublicDataAuctionPrices(
     전갱이: ['전갱이', '매가리'],
   };
 
-  // '해양수산부_위판장별 위탁판매 현황' (select0050List) 및 경락시세(select0040List) 엔드포인트 순차 탐색
+  // 검증된 select0040List 엔드포인트 우선 사용 (baseDt 및 cnsgnDe 파라미터 모두 대응)
   const endpoints = [
-    {
-      url: 'https://apis.data.go.kr/1192000/select0050List/getselect0050List',
-      dateParam: 'cnsgnDe',
-    },
     {
       url: 'https://apis.data.go.kr/1192000/select0040List/getselect0040List',
       dateParam: 'baseDt',
+    },
+    {
+      url: 'https://apis.data.go.kr/1192000/select0040List/getselect0040List',
+      dateParam: 'cnsgnDe',
     },
   ];
 
@@ -410,15 +410,21 @@ export async function fetchPublicDataAuctionPrices(
     let lastApiError = '';
 
     for (const ep of endpoints) {
-      // 최근 영업일(오늘부터 최대 5일 전까지) 순차 조회
-      for (let offset = 0; offset < 5; offset++) {
+      for (let offset = 0; offset < 4; offset++) {
         const targetYmd = ymd7d[ymd7d.length - 1 - offset];
         const reqUrl = `${ep.url}?serviceKey=${encodedKey}&numOfRows=500&pageNo=1&type=json&${ep.dateParam}=${targetYmd}`;
         const res = await fetch(reqUrl);
+
+        // 401/403 권한 오류 발생 시 불필요한 날짜 반복 호출 없이 즉시 중단
+        if (res.status === 401 || res.status === 403) {
+          lastApiError = `접근 권한 오류 (HTTP ${res.status}) - 공공데이터포털 활용신청 오퍼레이션 권한을 확인해 주세요.`;
+          break;
+        }
         if (!res.ok) {
           lastApiError = `HTTP ${res.status}`;
           continue;
         }
+
         const rawText = await res.text();
         const { items, errorMsg } = extractDataGoItems(rawText);
         if (errorMsg) {
