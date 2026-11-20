@@ -17,6 +17,7 @@ export default function Modals({
   activeModal,
   setActiveModal,
   partnersCount = 0,
+  unsearchedPartnersCount = 0,
   geminiKey = '',
   supabaseConfig,
   supabaseForm,
@@ -53,24 +54,35 @@ export default function Modals({
       ? speciesKeys
       : Object.keys(safeSpeciesMap);
   const effectiveGeminiKey = geminiKey || supabaseConfig?.geminiKey || '';
+
+  const isTopSearchModal =
+    activeModal === 'confirmTopSearchNew' ||
+    activeModal === 'confirmTopSearchAll' ||
+    activeModal === 'confirmTopSearch' ||
+    activeModal === 'confirmTopIngredients';
+  const topSearchMode = activeModal === 'confirmTopSearchAll' ? 'all' : 'new';
+  const topSearchTargetCount =
+    topSearchMode === 'all' ? partnersCount : unsearchedPartnersCount;
+
   const handleTriggerTopSearch = () => {
     setActiveModal(null);
-    if (onConfirmTopSearch) onConfirmTopSearch();
-    else if (onRunTopIngredientsSearch) onRunTopIngredientsSearch();
+    if (onConfirmTopSearch) onConfirmTopSearch(topSearchMode);
+    else if (onRunTopIngredientsSearch) onRunTopIngredientsSearch(topSearchMode);
   };
 
   return (
     <>
-      {/* 모달 1: TOP 5 메인재료 AI 서치 실행 확인창 */}
-      {(activeModal === 'confirmTopSearch' ||
-        activeModal === 'confirmTopIngredients') && (
+      {/* 모달 1: TOP 5 메인재료 AI 서치 실행 확인창 (신규 증분 / 전체 재서칭 공용) */}
+      {isTopSearchModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <Sparkles className="w-5 h-5 text-sky-600" />
                 <h3 className="text-base font-bold text-slate-900">
-                  TOP 5 메인재료 AI 서치 실행 확인
+                  {topSearchMode === 'all'
+                    ? '전체 거래처 TOP 5 메인재료 재서칭 확인'
+                    : '신규 미서치 거래처 TOP 5 추가 서치 확인'}
                 </h3>
               </div>
               <button
@@ -82,35 +94,46 @@ export default function Modals({
             </div>
 
             <div className="space-y-3 text-xs text-slate-600 leading-relaxed">
-              <p>
-                등록된 전체 거래처의 네이버 메뉴·리뷰를 검색하여 <strong>메인 원재료 TOP 5</strong>를 집계합니다. 정말 실행하시겠습니까?
-              </p>
+              {topSearchMode === 'all' ? (
+                <p>
+                  기존에 저장된 분석 기록을 초기화하고, 등록된 <strong>전체 {partnersCount}개 거래처</strong>의 네이버 메뉴·리뷰를 처음부터 다시 검색합니다.
+                </p>
+              ) : (
+                <p>
+                  이미 서치된 기존 업체({Math.max(0, partnersCount - unsearchedPartnersCount)}개사)는 저장된 데이터를 유지하고,{' '}
+                  <strong>아직 검색되지 않은 신규 {unsearchedPartnersCount}개사만</strong> 추가로 검색하여 전체 TOP 5에 합산합니다.
+                </p>
+              )}
 
               <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500">대상 거래처 수</span>
-                  <strong className="text-slate-900">{partnersCount}개사</strong>
+                  <span className="text-slate-500">이번 API 검색 대상</span>
+                  <strong className="text-slate-900">{topSearchTargetCount}개사</strong>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-500">배치 실행 계획</span>
                   <strong className="text-slate-900">
-                    5개사씩 묶음 · 총 {Math.ceil(partnersCount / 15)}회 API 호출
+                    15개사씩 묶음 · 총 {Math.ceil(topSearchTargetCount / 15)}회 API 호출
                   </strong>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span className="text-slate-500">예상 리소스 · 비용</span>
-                  <strong className="text-sky-700">무료 할당량 내 0원 / 유료 시 약 200~600원</strong>
+                  <span className="text-slate-500">예상 할당량 소모</span>
+                  <strong className="text-sky-700">
+                    {topSearchTargetCount === 0
+                      ? 'API 호출 0회 (즉시 재집계)'
+                      : `무료 할당량 ${Math.ceil(topSearchTargetCount / 15)}회 차감`}
+                  </strong>
                 </div>
               </div>
 
               <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
                 <span>
-                  실행 시 <strong>Gemini API 토큰 및 Google Search 그라운딩 할당량</strong>이 소모됩니다. (진행 중 언제든 [중지] 버튼으로 중단 가능)
+                  검색 완료된 업체 데이터는 클라우드에 자동 저장되므로, 다음번에는 새로 추가한 업체만 검색하면 됩니다.
                 </span>
               </div>
 
-              {!effectiveGeminiKey && (
+              {!effectiveGeminiKey && topSearchTargetCount > 0 && (
                 <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-2">
                   <div className="font-bold flex items-center gap-1.5">
                     <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -144,7 +167,7 @@ export default function Modals({
                 onClick={handleTriggerTopSearch}
                 className="px-4 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs cursor-pointer"
               >
-                확인 · 서치 시작
+                {topSearchMode === 'all' ? '전체 재서칭 시작' : '신규 업체 서치 시작'}
               </button>
             </div>
           </div>

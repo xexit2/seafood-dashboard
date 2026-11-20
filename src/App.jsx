@@ -714,31 +714,39 @@ export default function App() {
     }
   };
 
-  const handleStartTopIngredientsSearch = async () => {
+const unsearchedTopPartnersCount = useMemo(
+    () => partners.filter((p) => !p.topIngredientSearched).length,
+    [partners]
+  );
+
+  const handleStartTopIngredientsSearch = async (mode = 'new') => {
     setActiveModal(null);
     if (partners.length === 0) {
       showToast('먼저 엑셀 파일을 업로드해 거래업체를 등록해 주세요.');
       return;
     }
 
+    const isFullRescan = mode === 'all';
+    const targetsToSearch = isFullRescan
+      ? partners
+      : partners.filter((p) => !p.topIngredientSearched);
+
     abortSearchRef.current = false;
     setIsSearchingTopIngredients(true);
 
     const batchSize = 15;
-    const total = partners.length;
+    const total = targetsToSearch.length;
     setSearchProgress({ done: 0, total });
 
-    // 원재료별 매칭 거래처 목록 맵: { '삼치': [{ id, companyName, address }, ...] }
-    const ingredientPartnersMap = {};
-    let analyzedCount = 0;
-    let omittedCount = 0;
+    // 이번 서치로 새로 확인된 업체별 원재료 맵: { [partnerId]: ['삼치', '고등어'] }
+    const newlyFoundMap = {};
     let lastError = '';
     let hitRateLimit = false;
 
     for (let i = 0; i < total; i += batchSize) {
       if (abortSearchRef.current) break;
 
-      const batch = partners.slice(i, i + batchSize);
+      const batch = targetsToSearch.slice(i, i + batchSize);
       const batchRes = await searchTopIngredientsBatch(batch, supabaseConfig.geminiKey);
       if (batchRes.error && !lastError) {
         lastError = batchRes.error;
@@ -753,26 +761,10 @@ export default function App() {
       batch.forEach((p, bIdx) => {
         const matched =
           returnedList.find((r) => r.companyName === p.companyName) || returnedList[bIdx];
-        const ings = Array.isArray(matched?.ingredients) ? matched.ingredients : [];
-
-        if (ings.length === 0) {
-          omittedCount += 1;
-        } else {
-          analyzedCount += 1;
-          const uniqueIngs = Array.from(new Set(ings));
-          uniqueIngs.forEach((ing) => {
-            if (!ingredientPartnersMap[ing]) {
-              ingredientPartnersMap[ing] = [];
-            }
-            if (!ingredientPartnersMap[ing].some((item) => item.id === p.id)) {
-              ingredientPartnersMap[ing].push({
-                id: p.id,
-                companyName: p.companyName,
-                address: p.address || '',
-              });
-            }
-          });
-        }
+        const ings = Array.isArray(matched?.ingredients)
+          ? Array.from(new Set(matched.ingredients))
+          : [];
+        newlyFoundMap[p.id] = ings;
       });
 
       const doneCount = Math.min(i + batch.length, total);
@@ -782,6 +774,47 @@ export default function App() {
         await new Promise((r) => setTimeout(r, 1500));
       }
     }
+
+    // 기존 partners 상태에 이번 서치 결과를 누적 반영
+    const nextPartners = partners.map((p) => {
+      if (Object.prototype.hasOwnProperty.call(newlyFoundMap, p.id)) {
+        return {
+          ...p,
+          topIngredientSearched: true,
+          extractedIngredients: newlyFoundMap[p.id],
+        };
+      }
+      if (isFullRescan && !hitRateLimit && !abortSearchRef.current) {
+        return { ...p, topIngredientSearched: false, extractedIngredients: [] };
+      }
+      return p;
+    });
+
+    // 전체 partners(기존 누적 + 신규 확인) 기준으로 TOP 5 재집계
+    const ingredientPartnersMap = {};
+    let analyzedCount = 0;
+    let omittedCount = 0;
+
+    nextPartners.forEach((p) => {
+      const ings = Array.isArray(p.extractedIngredients) ? p.extractedIngredients : [];
+      if (ings.length === 0) {
+        omittedCount += 1;
+      } else {
+        analyzedCount += 1;
+        ings.forEach((ing) => {
+          if (!ingredientPartnersMap[ing]) {
+            ingredientPartnersMap[ing] = [];
+          }
+          if (!ingredientPartnersMap[ing].some((item) => item.id === p.id)) {
+            ingredientPartnersMap[ing].push({
+              id: p.id,
+              companyName: p.companyName,
+              address: p.address || '',
+            });
+          }
+        });
+      }
+    });
 
     const sorted = Object.entries(ingredientPartnersMap)
       .sort((a, b) => b[1].length - a[1].length)
@@ -802,26 +835,32 @@ export default function App() {
       updatedAt: schedule.formattedNow,
       analyzedCount,
       omittedCount,
-      lastError: top5Items.length === 0 ? lastError : '',
+      lastError: hitRateLimit ? lastError : top5Items.length === 0 ? lastError : '',
     };
 
+    setPartners(nextPartners);
     setTopIngredientsState(nextTopState);
     setIsSearchingTopIngredients(false);
-    await persistDashboardState({ topIngredients: nextTopState });
+    await persistDashboardState({
+      partners: nextPartners,
+      topIngredients: nextTopState,
+    });
 
     if (hitRateLimit) {
       showToast(
-        '⚠️ AI 무료 사용 한도를 모두 소진하여 연쇄 호출 없이 즉시 중지했습니다. (잠시 후 다시 시도하거나 유료 결제 계정을 연결해 주세요)'
+        '⚠️ AI 무료 사용 한도를 모두 소진하여 즉시 중지했습니다. (직전까지 확인된 업체 결과는 저장됨)'
       );
     } else if (abortSearchRef.current) {
-      showToast(`서치가 중지되었습니다. (${analyzedCount}개사 확인 결과 반영)`);
+      showToast(`서치가 중지되었습니다. (누적 확인 ${analyzedCount}개사 결과 반영)`);
+    } else if (total === 0 && !isFullRescan) {
+      showToast(`신규 미서치 업체가 없어 기존 저장 데이터(${analyzedCount}개사) 기준으로 TOP 5를 재정리했습니다.`);
     } else if (top5Items.length === 0) {
       showToast(
         lastError || '확인된 메인 원재료가 없습니다. 상단 [동기화 · AI키 설정]을 확인해 주세요.'
       );
     } else {
       showToast(
-        `메인재료 TOP 5 갱신 완료! (확인 ${analyzedCount}개사 · 확인 불가 ${omittedCount}개사 생략)`
+        `${isFullRescan ? '전체 재서칭' : `신규 ${total}개사 서치`} 완료! (누적 확인 ${analyzedCount}개사 · 생략 ${omittedCount}개사)`
       );
     }
   };
@@ -1817,13 +1856,16 @@ export default function App() {
         </section>
 
         <section className="space-y-6">
-          <TopIngredientsSection
+
+        <TopIngredientsSection
             partnersCount={partners.length}
+            unsearchedCount={unsearchedTopPartnersCount}
             partners={partners}
             topIngredientsState={topIngredientsState}
             isSearchingTopIngredients={isSearchingTopIngredients}
             searchProgress={searchProgress}
-            onRequestSearchConfirm={() => setActiveModal('confirmTopSearch')}
+            onRequestNewSearchConfirm={() => setActiveModal('confirmTopSearchNew')}
+            onRequestFullRescanConfirm={() => setActiveModal('confirmTopSearchAll')}
             onAbortSearch={() => {
               abortSearchRef.current = true;
             }}
@@ -1861,6 +1903,7 @@ export default function App() {
         activeModal={activeModal}
         setActiveModal={setActiveModal}
         partnersCount={partners.length}
+        unsearchedPartnersCount={unsearchedTopPartnersCount}
         geminiKey={supabaseConfig.geminiKey}
         onConfirmTopSearch={handleStartTopIngredientsSearch}
         supabaseForm={supabaseForm}
