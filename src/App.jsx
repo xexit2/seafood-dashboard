@@ -410,6 +410,7 @@ export default function App() {
               topIngredients: nextTopIng,
               auctionUpdatedAt: nextAuctionUpdatedAt,
               lastNoonSyncDate: nextLastNoonSyncDate,
+              publicDataKey: activeSb.publicDataKey || '',
               geminiKey: activeSb.geminiKey || '',
             },
             updated_at: new Date().toISOString(),
@@ -733,7 +734,9 @@ export default function App() {
     const res = await fetchSpeciesAuctionTrend(
       keyword,
       supabaseConfig.geminiKey,
-      DEFAULT_SOUTH_MARKETS
+      DEFAULT_SOUTH_MARKETS,
+      null,
+      supabaseConfig.publicDataKey
     );
     setIsSearchingSpecies(false);
 

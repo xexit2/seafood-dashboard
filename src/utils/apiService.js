@@ -313,7 +313,65 @@ function normalizeServiceKeyParam(rawKey) {
   return trimmed.includes('%') ? trimmed : encodeURIComponent(trimmed);
 }
 
-// 공공데이터포털(해양수산부·수협중앙회 산지위판장 경락가격 정보) 공식 Open API 조회
+// 공공데이터포털 JSON 또는 XML 응답에서 item 배열 추출
+function extractDataGoItems(rawText) {
+  const trimmed = String(rawText || '').trim();
+  if (!trimmed) return { items: [], errorMsg: '빈 응답' };
+
+  // 1. JSON 응답 파싱
+  if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+    try {
+      const data = JSON.parse(trimmed);
+      const resultCode =
+        data?.response?.header?.resultCode || data?.header?.resultCode || '';
+      const resultMsg =
+        data?.response?.header?.resultMsg || data?.header?.resultMsg || '';
+      if (resultCode && resultCode !== '00' && resultCode !== 'NORMAL_CODE') {
+        return { items: [], errorMsg: `${resultMsg || resultCode}` };
+      }
+      const rawItems =
+        data?.response?.body?.items?.item ||
+        data?.body?.items?.item ||
+        data?.items ||
+        [];
+      const list = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
+      return { items: list, errorMsg: '' };
+    } catch (_) {
+      // JSON 파싱 실패 시 XML 파싱으로 진행
+    }
+  }
+
+  // 2. XML 응답 파싱
+  try {
+    const parser = new DOMParser();
+    const xmlDoc = parser.parseFromString(trimmed, 'text/xml');
+    const errMsgNode =
+      xmlDoc.querySelector('returnAuthMsg') || xmlDoc.querySelector('resultMsg');
+    const codeNode =
+      xmlDoc.querySelector('returnReasonCode') || xmlDoc.querySelector('resultCode');
+    const codeVal = codeNode?.textContent?.trim() || '';
+    if (codeVal && codeVal !== '00') {
+      return {
+        items: [],
+        errorMsg: errMsgNode?.textContent?.trim() || `오류코드 ${codeVal}`,
+      };
+    }
+
+    const itemNodes = Array.from(xmlDoc.querySelectorAll('item'));
+    const list = itemNodes.map((node) => {
+      const obj = {};
+      Array.from(node.children).forEach((child) => {
+        obj[child.tagName] = child.textContent?.trim() || '';
+      });
+      return obj;
+    });
+    return { items: list, errorMsg: '' };
+  } catch (e) {
+    return { items: [], errorMsg: '응답 파싱 오류' };
+  }
+}
+
+// 공공데이터포털(해양수산부_위판장별 위탁판매 현황) 공식 Open API 조회
 export async function fetchPublicDataAuctionPrices(
   speciesMap,
   publicDataKey = '',
@@ -327,7 +385,6 @@ export async function fetchPublicDataAuctionPrices(
   const keys = Object.keys(speciesMap || {});
   const { labels7d, ymd7d, labels30d, todayLabel } = buildRecentDateLabels();
 
-  // 어종별 검색 동의어 매핑 (예: 금태 -> 눈볼대/금태)
   const speciesAliases = {
     금태: ['금태', '눈볼대'],
     삼치: ['삼치'],
@@ -335,32 +392,46 @@ export async function fetchPublicDataAuctionPrices(
     전갱이: ['전갱이', '매가리'],
   };
 
+  // '해양수산부_위판장별 위탁판매 현황' (select0050List) 및 경락시세(select0040List) 엔드포인트 순차 탐색
+  const endpoints = [
+    {
+      url: 'https://apis.data.go.kr/1192000/select0050List/getselect0050List',
+      dateParam: 'cnsgnDe',
+    },
+    {
+      url: 'https://apis.data.go.kr/1192000/select0040List/getselect0040List',
+      dateParam: 'baseDt',
+    },
+  ];
+
   try {
-    // 최근 영업일(오늘부터 최대 3일 전까지) 위판장 경락 데이터 조회
     let allItems = [];
-    for (let offset = 0; offset < 3; offset++) {
-      const targetYmd = ymd7d[ymd7d.length - 1 - offset];
-      const url = `https://apis.data.go.kr/1192000/select0040List/getselect0040List?serviceKey=${encodedKey}&numOfRows=300&pageNo=1&type=json&baseDt=${targetYmd}`;
-      const res = await fetch(url);
-      if (!res.ok) {
-        return {
-          ok: false,
-          updatedMap: null,
-          matchedCount: 0,
-          error: `공공데이터 API 응답 오류 (HTTP ${res.status})`,
-        };
+    let matchedDateLabel = todayLabel;
+    let lastApiError = '';
+
+    for (const ep of endpoints) {
+      // 최근 영업일(오늘부터 최대 5일 전까지) 순차 조회
+      for (let offset = 0; offset < 5; offset++) {
+        const targetYmd = ymd7d[ymd7d.length - 1 - offset];
+        const reqUrl = `${ep.url}?serviceKey=${encodedKey}&numOfRows=500&pageNo=1&type=json&${ep.dateParam}=${targetYmd}`;
+        const res = await fetch(reqUrl);
+        if (!res.ok) {
+          lastApiError = `HTTP ${res.status}`;
+          continue;
+        }
+        const rawText = await res.text();
+        const { items, errorMsg } = extractDataGoItems(rawText);
+        if (errorMsg) {
+          lastApiError = errorMsg;
+          break;
+        }
+        if (items.length > 0) {
+          allItems = items;
+          matchedDateLabel = `${targetYmd.slice(4, 6)}/${targetYmd.slice(6, 8)}`;
+          break;
+        }
       }
-      const data = await res.json();
-      const rawItems =
-        data?.response?.body?.items?.item ||
-        data?.body?.items?.item ||
-        data?.items ||
-        [];
-      const list = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
-      if (list.length > 0) {
-        allItems = list;
-        break;
-      }
+      if (allItems.length > 0) break;
     }
 
     if (allItems.length === 0) {
@@ -368,7 +439,9 @@ export async function fetchPublicDataAuctionPrices(
         ok: false,
         updatedMap: null,
         matchedCount: 0,
-        error: '최근 위판일 경락 데이터가 아직 집계되지 않았습니다 (휴장일 또는 오전 경매 전)',
+        error: lastApiError
+          ? `공공데이터 API 안내: ${lastApiError}`
+          : '최근 5일간 위판장 위탁판매 집계 데이터가 없습니다 (휴장일 또는 정산 전)',
       };
     }
 
@@ -383,7 +456,6 @@ export async function fetchPublicDataAuctionPrices(
           ? existing.markets.map((m) => m.market)
           : defaultMarkets;
 
-      // 해당 어종에 일치하는 공식 위판 레코드 필터링
       const speciesRows = allItems.filter((row) => {
         const spName = String(
           row.mtrlNm || row.fshlcNm || row.spcsNm || row.prdlstNm || ''
@@ -394,10 +466,17 @@ export async function fetchPublicDataAuctionPrices(
       if (speciesRows.length > 0) {
         matchedCount += 1;
 
-        // 전체 평균 낙찰가 계산
-        const prices = speciesRows
-          .map((r) => Number(r.avrgPrc || r.cnsgnPrc || r.bidPrc || r.prc || 0))
-          .filter((v) => v > 0);
+        // 레코드별 단가 계산: 평균단가 필드 우선, 없으면 총 위탁금액(cnsgnAmt) ÷ 위탁물량(cnsgnQty)으로 산출
+        const calcRowUnitPrice = (r) => {
+          const directPrc = Number(r.avrgPrc || r.cnsgnPrc || r.bidPrc || r.prc || 0);
+          if (directPrc > 0) return directPrc;
+          const amt = Number(r.cnsgnAmt || r.amt || 0);
+          const qty = Number(r.cnsgnQty || r.qty || r.wt || 0);
+          if (amt > 0 && qty > 0) return Math.round(amt / qty);
+          return 0;
+        };
+
+        const prices = speciesRows.map(calcRowUnitPrice).filter((v) => v > 0);
         const newAvg =
           prices.length > 0
             ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length)
@@ -407,7 +486,6 @@ export async function fetchPublicDataAuctionPrices(
         const diffRate =
           prevAvg > 0 ? Number((((newAvg - prevAvg) / prevAvg) * 100).toFixed(1)) : 0;
 
-        // 위판장별 실제 낙찰가 및 위판 물량 매칭
         const normalizedMarkets = marketList.map((mName, idx) => {
           const shortMarket = mName
             .replace('위판장', '')
@@ -417,15 +495,13 @@ export async function fetchPublicDataAuctionPrices(
 
           const mRows = speciesRows.filter((r) => {
             const apiMarket = String(
-              r.cnsgnMktNm || r.whsalMrktNm || r.mktNm || r.mxtrNm || ''
+              r.mxtrNm || r.cnsgnMktNm || r.whsalMrktNm || r.mktNm || r.fshlcNm || ''
             );
             return shortMarket && apiMarket.includes(shortMarket);
           });
 
           if (mRows.length > 0) {
-            const mPrices = mRows
-              .map((r) => Number(r.avrgPrc || r.cnsgnPrc || r.bidPrc || r.prc || 0))
-              .filter((v) => v > 0);
+            const mPrices = mRows.map(calcRowUnitPrice).filter((v) => v > 0);
             const mAvgPrice =
               mPrices.length > 0
                 ? Math.round(mPrices.reduce((a, b) => a + b, 0) / mPrices.length)
@@ -441,7 +517,10 @@ export async function fetchPublicDataAuctionPrices(
               market: mName,
               price: mAvgPrice,
               diff,
-              volume: totalQty > 0 ? `${new Intl.NumberFormat('ko-KR').format(Math.round(totalQty))} kg/상자` : '집계완료',
+              volume:
+                totalQty > 0
+                  ? `${new Intl.NumberFormat('ko-KR').format(Math.round(totalQty))} kg/상자`
+                  : '위탁집계',
               status: diff > 0 ? '상승' : diff < 0 ? '약세' : '보합',
             };
           }
@@ -456,9 +535,9 @@ export async function fetchPublicDataAuctionPrices(
         });
 
         const norm7d = normalizeHistoryDates(existing?.history7d, labels7d, newAvg);
-        norm7d[norm7d.length - 1] = { date: todayLabel, price: newAvg };
+        norm7d[norm7d.length - 1] = { date: matchedDateLabel, price: newAvg };
         const norm30d = normalizeHistoryDates(existing?.history30d, labels30d, newAvg);
-        norm30d[norm30d.length - 1] = { date: todayLabel, price: newAvg };
+        norm30d[norm30d.length - 1] = { date: matchedDateLabel, price: newAvg };
 
         updatedMap[k] = {
           ...existing,
@@ -482,26 +561,27 @@ export async function fetchPublicDataAuctionPrices(
       ok: matchedCount > 0,
       updatedMap,
       matchedCount,
-      error: matchedCount > 0 ? '' : '공공데이터 응답 내 일치하는 어종 시세가 없습니다.',
+      matchedDateLabel,
+      error: matchedCount > 0 ? '' : `공공데이터(${allItems.length}건 수신) 내 일치하는 어종이 없습니다.`,
     };
   } catch (err) {
     return {
       ok: false,
       updatedMap: null,
       matchedCount: 0,
-      error: `공공데이터 API 연결 실패: ${err?.message || 'CORS 또는 네트워크 오류'}`,
+      error: `공공데이터 API 연결 오류: ${err?.message || '네트워크/CORS 오류'}`,
     };
   }
 }
 
-// 등록된 전체 어종 시세 일괄 갱신 (1순위: 공공데이터 공식 API / 2순위: Gemini AI 보조 폴백)
+// 등록된 전체 어종 시세 일괄 갱신
+// 공공데이터 키가 설정된 경우: 공식 API만 단독 사용하고 제미나이 AI를 절대 호출하지 않음
 export async function fetchAllSpeciesAuctionBatch(
   speciesMap,
   geminiApiKey = '',
   defaultMarkets = DEFAULT_SOUTH_MARKETS,
   publicDataKey = ''
 ) {
-  // 1순위: 공공데이터포털 인증키가 있으면 무료 공식 API로 실제 낙찰가·물량 우선 조회
   if ((publicDataKey || '').trim()) {
     const pubRes = await fetchPublicDataAuctionPrices(
       speciesMap,
@@ -517,31 +597,30 @@ export async function fetchAllSpeciesAuctionBatch(
         error: '',
       };
     }
-    // 공공데이터 키만 있고 Gemini 키가 없는 경우 공공데이터 오류 사유 반환
-    if (!(geminiApiKey || '').trim()) {
-      const keys = Object.keys(speciesMap || {});
-      const { labels7d, labels30d } = buildRecentDateLabels();
-      const dateOnlyMap = {};
-      for (const k of keys) {
-        const existing = speciesMap[k];
-        const fallbackAvg = Number(existing?.currentAvg) || 35000;
-        dateOnlyMap[k] = {
-          ...existing,
-          history7d: normalizeHistoryDates(existing?.history7d, labels7d, fallbackAvg),
-          history30d: normalizeHistoryDates(existing?.history30d, labels30d, fallbackAvg),
-        };
-      }
-      return {
-        updatedMap: dateOnlyMap,
-        liveUpdatedCount: 0,
-        source: 'public',
-        isRateLimit: false,
-        error: pubRes.error,
+
+    // 공공데이터 키가 있으면 제미나이로 넘어가지 않고 날짜만 오늘로 갱신하며 정확한 안내 메시지 반환
+    const keys = Object.keys(speciesMap || {});
+    const { labels7d, labels30d } = buildRecentDateLabels();
+    const dateOnlyMap = {};
+    for (const k of keys) {
+      const existing = speciesMap[k];
+      const fallbackAvg = Number(existing?.currentAvg) || 35000;
+      dateOnlyMap[k] = {
+        ...existing,
+        history7d: normalizeHistoryDates(existing?.history7d, labels7d, fallbackAvg),
+        history30d: normalizeHistoryDates(existing?.history30d, labels30d, fallbackAvg),
       };
     }
+    return {
+      updatedMap: dateOnlyMap,
+      liveUpdatedCount: 0,
+      source: 'public',
+      isRateLimit: false,
+      error: pubRes.error,
+    };
   }
 
-  // 2순위: Gemini AI 일괄 시세 조회
+  // 공공데이터 키가 비어 있을 때만 Gemini AI 일괄 시세 조회 사용
   const keys = Object.keys(speciesMap || {});
   const { labels7d, labels30d, todayLabel } = buildRecentDateLabels();
 
