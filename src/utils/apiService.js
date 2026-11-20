@@ -472,6 +472,7 @@ export async function fetchPublicDataAuctionPrices(
           const spText = await spRes.text();
           const { items } = extractDataGoItems(spText);
           if (items.length > 0) {
+            console.log(`[공공데이터 ${aliasName} 실제 응답 샘플]:`, items[0]);
             speciesRows = items;
             break;
           }
@@ -481,15 +482,16 @@ export async function fetchPublicDataAuctionPrices(
       if (speciesRows.length > 0) {
         matchedCount += 1;
 
-        // 레코드별 단가 산출 (위판평균가/단가 우선, 없으면 총 위탁금액 ÷ 총 위탁물량)
+        // 실제 응답에서 금액/단가/물량 필드를 폭넓게 탐지하여 1kg(또는 1상자)당 평균 단가 산출
         const calcRowUnitPrice = (r) => {
           const directPrc = Number(
-            r.avrgPrc || r.cnsgnUntprc || r.cnsgnPrc || r.bidPrc || r.prc || 0
+            r.avrgPrc || r.cnsgnUntprc || r.cnsgnPrc || r.bidPrc || r.untprc || r.prc || 0
           );
           if (directPrc > 0) return directPrc;
-          const amt = Number(r.cnsgnAmt || r.amt || 0);
-          const qty = Number(r.cnsgnQty || r.cnsgnWt || r.qty || r.wt || 0);
-          if (amt > 0 && qty > 0) return Math.round(amt / qty);
+
+          const amt = Number(r.cnsgnAmt || r.totAmt || r.amt || r.saleAmt || 0);
+          const wt = Number(r.cnsgnWt || r.wt || r.cnsgnQty || r.qty || r.totWt || 0);
+          if (amt > 0 && wt > 0) return Math.round(amt / wt);
           return 0;
         };
 
@@ -503,7 +505,6 @@ export async function fetchPublicDataAuctionPrices(
         const diffRate =
           prevAvg > 0 ? Number((((newAvg - prevAvg) / prevAvg) * 100).toFixed(1)) : 0;
 
-        // 위판장명(csmtmktNm) 및 조합명(mxtrNm) 기준으로 실제 낙찰가와 물량 매칭
         const normalizedMarkets = marketList.map((mName, idx) => {
           const shortMarket = mName
             .replace('위판장', '')
@@ -512,7 +513,7 @@ export async function fetchPublicDataAuctionPrices(
             .trim();
 
           const mRows = speciesRows.filter((r) => {
-            const apiMarket = `${r.csmtmktNm || ''} ${r.mxtrNm || ''}`;
+            const apiMarket = `${r.csmtmktNm || ''} ${r.mxtrNm || ''} ${r.whsalMrktNm || ''}`;
             return shortMarket && apiMarket.includes(shortMarket);
           });
 
@@ -522,8 +523,8 @@ export async function fetchPublicDataAuctionPrices(
               mPrices.length > 0
                 ? Math.round(mPrices.reduce((a, b) => a + b, 0) / mPrices.length)
                 : newAvg;
-            const totalQty = mRows.reduce(
-              (acc, r) => acc + Number(r.cnsgnQty || r.cnsgnWt || r.qty || r.wt || 0),
+            const totalWt = mRows.reduce(
+              (acc, r) => acc + Number(r.cnsgnWt || r.wt || r.cnsgnQty || r.qty || 0),
               0
             );
             const prevMarketPrice = Number(existing?.markets?.[idx]?.price) || mAvgPrice;
@@ -534,8 +535,8 @@ export async function fetchPublicDataAuctionPrices(
               price: mAvgPrice,
               diff,
               volume:
-                totalQty > 0
-                  ? `${new Intl.NumberFormat('ko-KR').format(Math.round(totalQty))} kg/상자`
+                totalWt > 0
+                  ? `${new Intl.NumberFormat('ko-KR').format(Math.round(totalWt))} kg`
                   : `${mRows.length}건 위판`,
               status: diff > 0 ? '상승' : diff < 0 ? '약세' : '보합',
             };
