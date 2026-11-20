@@ -548,6 +548,7 @@ export default function App() {
       sbHeaders.Authorization = `Bearer ${cleanSbKey}`;
     }
 
+    // 1. Supabase 읽기 진단
     try {
       const res = await fetch(
         `${cleanUrl}/rest/v1/seafood_state?id=eq.main&select=id,updated_at`,
@@ -561,6 +562,7 @@ export default function App() {
       results.sbRead = { ok: false, detail: e.message };
     }
 
+    // 2. Supabase 쓰기 진단 (savedPin, partners 등 현재 상태 변수 사용)
     try {
       const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?on_conflict=id`, {
         method: 'POST',
@@ -573,16 +575,16 @@ export default function App() {
         body: JSON.stringify({
           id: 'main',
           payload: {
-              pin: nextPin,
-              partners: nextPartners,
-              speciesData: nextSpecies,
-              snsFeeds: nextFeeds,
-              topIngredients: nextTopIng,
-              auctionUpdatedAt: nextAuctionUpdatedAt,
-              lastNoonSyncDate: nextLastNoonSyncDate,
-              geminiKey: activeSb.geminiKey || '',
-              publicDataKey: activeSb.publicDataKey || '',
-            },
+            pin: savedPin,
+            partners,
+            speciesData: safeSpeciesData,
+            snsFeeds,
+            topIngredients: topIngredientsState,
+            auctionUpdatedAt,
+            lastNoonSyncDate,
+            geminiKey: cleanGeminiKey,
+            publicDataKey: cleanPublicKey,
+          },
           updated_at: new Date().toISOString(),
         }),
       });
@@ -594,6 +596,25 @@ export default function App() {
       results.sbWrite = { ok: false, detail: e.message };
     }
 
+    // 3. Gemini AI 키 진단
+    if (!cleanGeminiKey) {
+      results.gemini = { ok: false, detail: 'Gemini API 키가 비어 있습니다.' };
+    } else {
+      try {
+        const res = await fetch(
+          'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1',
+          { headers: { 'x-goog-api-key': cleanGeminiKey } }
+        );
+        const text = await res.text().catch(() => '');
+        results.gemini = res.ok
+          ? { ok: true, detail: `HTTP ${res.status} 정상 (API 키 인증 성공)` }
+          : { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 120)}` };
+      } catch (e) {
+        results.gemini = { ok: false, detail: e.message };
+      }
+    }
+
+    // 4. 공공데이터 위판 시세 API 진단
     if (!cleanPublicKey) {
       results.publicData = { ok: false, detail: '공공데이터 인증키가 비어 있습니다 (선택 입력).' };
     } else {
@@ -605,7 +626,8 @@ export default function App() {
           `https://apis.data.go.kr/1192000/select0040List/getselect0040List?serviceKey=${encoded}&numOfRows=1&pageNo=1&type=json`
         );
         const text = await res.text().catch(() => '');
-        const isServiceError = text.includes('SERVICE_KEY_IS_NOT_REGISTERED_ERROR') || text.includes('SERVICE ERROR');
+        const isServiceError =
+          text.includes('SERVICE_KEY_IS_NOT_REGISTERED_ERROR') || text.includes('SERVICE ERROR');
         results.publicData =
           res.ok && !isServiceError
             ? { ok: true, detail: `HTTP ${res.status} 정상 (공공데이터 위판 시세 인증 성공)` }
