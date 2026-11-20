@@ -9,16 +9,24 @@ import {
   Compass,
   ExternalLink,
 } from './Icons';
+import { INITIAL_WEATHER_DATA } from '../constants/initialData';
 
 export default function WeatherSection({
   weatherMap,
-  selectedSea,
+  weatherData,
+  selectedSea = 'busan',
   setSelectedSea,
-  windyOverlay,
+  windyOverlay = 'wind',
   setWindyOverlay,
 }) {
+  const safeWeatherMap =
+    weatherMap || weatherData || INITIAL_WEATHER_DATA || {};
   const currentWeather =
-    weatherMap[selectedSea] || Object.values(weatherMap)[0];
+    safeWeatherMap[selectedSea] ||
+    safeWeatherMap.busan ||
+    Object.values(safeWeatherMap)[0];
+
+  if (!currentWeather) return null;
 
   const windyEmbedUrl = `https://embed.windy.com/embed2.html?lat=${currentWeather.lat}&lon=${currentWeather.lon}&detailLat=${currentWeather.lat}&detailLon=${currentWeather.lon}&width=650&height=450&zoom=${currentWeather.zoom}&level=surface&overlay=${windyOverlay}&product=ecmwf&menu=&message=true&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=m%2Fs&metricTemp=%C2%B0C&radarRange=-1`;
 
@@ -36,10 +44,10 @@ export default function WeatherSection({
         </div>
 
         <div className="flex items-center gap-1.5 bg-white/10 p-1 rounded-xl">
-          {Object.values(weatherMap).map((sea) => (
+          {Object.values(safeWeatherMap).map((sea) => (
             <button
               key={sea.id}
-              onClick={() => setSelectedSea(sea.id)}
+              onClick={() => setSelectedSea && setSelectedSea(sea.id)}
               className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                 selectedSea === sea.id
                   ? 'bg-sky-500 text-white shadow-xs'
@@ -64,7 +72,7 @@ export default function WeatherSection({
             ].map((layer) => (
               <button
                 key={layer.id}
-                onClick={() => setWindyOverlay(layer.id)}
+                onClick={() => setWindyOverlay && setWindyOverlay(layer.id)}
                 className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                   windyOverlay === layer.id
                     ? 'bg-sky-500 text-white'
