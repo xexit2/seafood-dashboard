@@ -371,7 +371,7 @@ function extractDataGoItems(rawText) {
   }
 }
 
-// 공공데이터포털(해양수산부_위판장별 위탁판매 현황) 공식 Open API 조회
+// 공공데이터포털(해양수산부_위판장별 위탁판매 현황 /getselect0040List) 공식 Open API 조회
 export async function fetchPublicDataAuctionPrices(
   speciesMap,
   publicDataKey = '',
@@ -383,77 +383,77 @@ export async function fetchPublicDataAuctionPrices(
   }
 
   const keys = Object.keys(speciesMap || {});
-  const { labels7d, ymd7d, labels30d, todayLabel } = buildRecentDateLabels();
+  const { labels7d, labels30d, todayLabel } = buildRecentDateLabels();
 
+  // 최근 14일 날짜 목록 생성 (YYYYMMDD) - 주말·정산 지연 시에도 가장 최신 위판일 자동 탐색
+  const recent14Ymd = [];
+  const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(nowKst.getTime() - i * 24 * 60 * 60 * 1000);
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    recent14Ymd.push(`${yyyy}${mm}${dd}`);
+  }
+
+  // 어종별 표준 수산물명(mprcStdCodeNm) 매핑
   const speciesAliases = {
-    금태: ['금태', '눈볼대'],
+    금태: ['눈볼대', '금태'],
     삼치: ['삼치'],
     고등어: ['고등어', '참고등어'],
-    전갱이: ['전갱이', '매가리'],
+    전갱이: ['전갱이'],
   };
 
-  // 검증된 select0040List 엔드포인트 우선 사용 (baseDt 및 cnsgnDe 파라미터 모두 대응)
-  const endpoints = [
-    {
-      url: 'https://apis.data.go.kr/1192000/select0040List/getselect0040List',
-      dateParam: 'baseDt',
-    },
-    {
-      url: 'https://apis.data.go.kr/1192000/select0040List/getselect0040List',
-      dateParam: 'cnsgnDe',
-    },
-  ];
+  const baseUrl = 'https://apis.data.go.kr/1192000/select0040List/getselect0040List';
 
   try {
-    let allItems = [];
-    let matchedDateLabel = todayLabel;
+    const updatedMap = {};
+    let matchedCount = 0;
     let lastApiError = '';
 
-    for (const ep of endpoints) {
-      for (let offset = 0; offset < 4; offset++) {
-        const targetYmd = ymd7d[ymd7d.length - 1 - offset];
-        const reqUrl = `${ep.url}?serviceKey=${encodedKey}&numOfRows=500&pageNo=1&type=json&${ep.dateParam}=${targetYmd}`;
-        const res = await fetch(reqUrl);
-
-        // 401/403 권한 오류 발생 시 불필요한 날짜 반복 호출 없이 즉시 중단
-        if (res.status === 401 || res.status === 403) {
-          lastApiError = `접근 권한 오류 (HTTP ${res.status}) - 공공데이터포털 활용신청 오퍼레이션 권한을 확인해 주세요.`;
-          break;
-        }
-        if (!res.ok) {
-          lastApiError = `HTTP ${res.status}`;
-          continue;
-        }
-
-        const rawText = await res.text();
-        const { items, errorMsg } = extractDataGoItems(rawText);
-        if (errorMsg) {
-          lastApiError = errorMsg;
-          break;
-        }
-        if (items.length > 0) {
-          allItems = items;
-          matchedDateLabel = `${targetYmd.slice(4, 6)}/${targetYmd.slice(6, 8)}`;
-          break;
-        }
+    // 1단계: 먼저 기준일자(baseDt)만으로 최근 14일 중 데이터가 존재하는 가장 최신 위판일 탐색
+    let validDateYmd = '';
+    for (const targetYmd of recent14Ymd) {
+      const probeUrl = `${baseUrl}?serviceKey=${encodedKey}&numOfRows=10&pageNo=1&type=json&baseDt=${targetYmd}`;
+      const res = await fetch(probeUrl);
+      if (res.status === 401 || res.status === 403) {
+        return {
+          ok: false,
+          updatedMap: null,
+          matchedCount: 0,
+          error: `접근 권한 오류 (HTTP ${res.status}) - 인증키를 확인해 주세요.`,
+        };
       }
-      if (allItems.length > 0) break;
+      if (!res.ok) {
+        lastApiError = `HTTP ${res.status}`;
+        continue;
+      }
+      const rawText = await res.text();
+      const { items, errorMsg } = extractDataGoItems(rawText);
+      if (errorMsg) {
+        lastApiError = errorMsg;
+        break;
+      }
+      if (items.length > 0) {
+        validDateYmd = targetYmd;
+        break;
+      }
     }
 
-    if (allItems.length === 0) {
+    if (!validDateYmd) {
       return {
         ok: false,
         updatedMap: null,
         matchedCount: 0,
         error: lastApiError
           ? `공공데이터 API 안내: ${lastApiError}`
-          : '최근 5일간 위판장 위탁판매 집계 데이터가 없습니다 (휴장일 또는 정산 전)',
+          : '최근 14일간 해양수산부 전산에 등록된 위판 데이터가 없습니다.',
       };
     }
 
-    const updatedMap = {};
-    let matchedCount = 0;
+    const matchedDateLabel = `${validDateYmd.slice(4, 6)}/${validDateYmd.slice(6, 8)}`;
 
+    // 2단계: 확인된 최신 위판일(validDateYmd) 기준으로 각 어종(mprcStdCodeNm)별 정밀 조회
     for (const k of keys) {
       const existing = speciesMap[k];
       const aliases = speciesAliases[k] || [k];
@@ -462,22 +462,33 @@ export async function fetchPublicDataAuctionPrices(
           ? existing.markets.map((m) => m.market)
           : defaultMarkets;
 
-      const speciesRows = allItems.filter((row) => {
-        const spName = String(
-          row.mtrlNm || row.fshlcNm || row.spcsNm || row.prdlstNm || ''
-        ).trim();
-        return aliases.some((al) => spName.includes(al));
-      });
+      let speciesRows = [];
+      for (const aliasName of aliases) {
+        const spUrl = `${baseUrl}?serviceKey=${encodedKey}&numOfRows=300&pageNo=1&type=json&baseDt=${validDateYmd}&mprcStdCodeNm=${encodeURIComponent(
+          aliasName
+        )}`;
+        const spRes = await fetch(spUrl);
+        if (spRes.ok) {
+          const spText = await spRes.text();
+          const { items } = extractDataGoItems(spText);
+          if (items.length > 0) {
+            speciesRows = items;
+            break;
+          }
+        }
+      }
 
       if (speciesRows.length > 0) {
         matchedCount += 1;
 
-        // 레코드별 단가 계산: 평균단가 필드 우선, 없으면 총 위탁금액(cnsgnAmt) ÷ 위탁물량(cnsgnQty)으로 산출
+        // 레코드별 단가 산출 (위판평균가/단가 우선, 없으면 총 위탁금액 ÷ 총 위탁물량)
         const calcRowUnitPrice = (r) => {
-          const directPrc = Number(r.avrgPrc || r.cnsgnPrc || r.bidPrc || r.prc || 0);
+          const directPrc = Number(
+            r.avrgPrc || r.cnsgnUntprc || r.cnsgnPrc || r.bidPrc || r.prc || 0
+          );
           if (directPrc > 0) return directPrc;
           const amt = Number(r.cnsgnAmt || r.amt || 0);
-          const qty = Number(r.cnsgnQty || r.qty || r.wt || 0);
+          const qty = Number(r.cnsgnQty || r.cnsgnWt || r.qty || r.wt || 0);
           if (amt > 0 && qty > 0) return Math.round(amt / qty);
           return 0;
         };
@@ -492,6 +503,7 @@ export async function fetchPublicDataAuctionPrices(
         const diffRate =
           prevAvg > 0 ? Number((((newAvg - prevAvg) / prevAvg) * 100).toFixed(1)) : 0;
 
+        // 위판장명(csmtmktNm) 및 조합명(mxtrNm) 기준으로 실제 낙찰가와 물량 매칭
         const normalizedMarkets = marketList.map((mName, idx) => {
           const shortMarket = mName
             .replace('위판장', '')
@@ -500,9 +512,7 @@ export async function fetchPublicDataAuctionPrices(
             .trim();
 
           const mRows = speciesRows.filter((r) => {
-            const apiMarket = String(
-              r.mxtrNm || r.cnsgnMktNm || r.whsalMrktNm || r.mktNm || r.fshlcNm || ''
-            );
+            const apiMarket = `${r.csmtmktNm || ''} ${r.mxtrNm || ''}`;
             return shortMarket && apiMarket.includes(shortMarket);
           });
 
@@ -513,7 +523,7 @@ export async function fetchPublicDataAuctionPrices(
                 ? Math.round(mPrices.reduce((a, b) => a + b, 0) / mPrices.length)
                 : newAvg;
             const totalQty = mRows.reduce(
-              (acc, r) => acc + Number(r.cnsgnQty || r.qty || r.wt || 0),
+              (acc, r) => acc + Number(r.cnsgnQty || r.cnsgnWt || r.qty || r.wt || 0),
               0
             );
             const prevMarketPrice = Number(existing?.markets?.[idx]?.price) || mAvgPrice;
@@ -526,7 +536,7 @@ export async function fetchPublicDataAuctionPrices(
               volume:
                 totalQty > 0
                   ? `${new Intl.NumberFormat('ko-KR').format(Math.round(totalQty))} kg/상자`
-                  : '위탁집계',
+                  : `${mRows.length}건 위판`,
               status: diff > 0 ? '상승' : diff < 0 ? '약세' : '보합',
             };
           }
@@ -535,7 +545,7 @@ export async function fetchPublicDataAuctionPrices(
             market: mName,
             price: Number(existing?.markets?.[idx]?.price) || newAvg,
             diff: Number(existing?.markets?.[idx]?.diff) || 0,
-            volume: existing?.markets?.[idx]?.volume || '위판 대기',
+            volume: existing?.markets?.[idx]?.volume || '당일 위판 없음',
             status: existing?.markets?.[idx]?.status || '보합',
           };
         });
@@ -568,7 +578,10 @@ export async function fetchPublicDataAuctionPrices(
       updatedMap,
       matchedCount,
       matchedDateLabel,
-      error: matchedCount > 0 ? '' : `공공데이터(${allItems.length}건 수신) 내 일치하는 어종이 없습니다.`,
+      error:
+        matchedCount > 0
+          ? ''
+          : `최신 위판일(${matchedDateLabel}) 데이터 내 등록된 4개 어종 거래 내역이 없습니다.`,
     };
   } catch (err) {
     return {
