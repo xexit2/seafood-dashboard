@@ -101,31 +101,79 @@ export async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
   "summary": "네이버 5점 리뷰에서 가장 많이 언급된 메뉴와 고객 평가 특징 1~2문장 요약"
 }`;
 
-  const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
-  if (res.ok) {
-    const parsed = parseFlexibleJson(res.text);
-    if (parsed) {
-      const validMenus = Array.isArray(parsed.menus)
-        ? parsed.menus.map((m) => String(m).trim()).filter(Boolean)
-        : [];
-      const topMenu = String(parsed.topReviewMenu || '').trim() || validMenus[0] || '';
+async function callGeminiWithFallback(userQuery, geminiApiKey = '', useSearch = true) {
+  const apiKey = (geminiApiKey || '').trim();
+  if (!apiKey) {
+    return {
+      ok: false,
+      isRateLimit: false,
+      text: '',
+      error: 'Gemini API 키가 설정되지 않았습니다. 상단 [동기화 · AI키 설정]에서 키를 입력해 주세요.',
+    };
+  }
+
+  const baseUrl =
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+  const reqHeaders = {
+    'Content-Type': 'application/json',
+    'x-goog-api-key': apiKey,
+  };
+
+  const payload = {
+    contents: [{ parts: [{ text: userQuery }] }],
+    ...(useSearch ? { tools: [{ google_search: {} }] } : {}),
+  };
+
+  try {
+    const response = await fetch(baseUrl, {
+      method: 'POST',
+      headers: reqHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      // 429(사용 한도 초과) 발생 시 연쇄 호출이나 재시도 없이 즉시 중단
+      if (response.status === 429) {
+        return {
+          ok: false,
+          isRateLimit: true,
+          text: '',
+          error:
+            'AI 무료 사용 한도(분당 또는 일일 할당량)를 모두 소진했습니다. 추가 호출을 즉시 중지합니다.',
+        };
+      }
+
+      const errBody = await response.text().catch(() => '');
       return {
-        topReviewMenu: topMenu,
-        menus: validMenus,
-        instagramHandle: `#${tagKeyword}`,
-        instagramUrl: defaultInstaSearchUrl,
-        blogUrl:
-          parsed.blogUrl && parsed.blogUrl.startsWith('http')
-            ? parsed.blogUrl
-            : naverPlaceMenuUrl,
-        summary:
-          parsed.summary ||
-          (topMenu
-            ? `[${combinedQuery}] 네이버 5점 리뷰 최다 언급 메뉴는 '${topMenu}'입니다.`
-            : `[${combinedQuery}] 네이버 플레이스 리뷰 및 메뉴판에서 직접 확인이 필요합니다.`),
+        ok: false,
+        isRateLimit: false,
+        text: '',
+        error: `API 요청 오류 (HTTP ${response.status}): ${errBody.slice(0, 100)}`,
       };
     }
+
+    const result = await response.json();
+    const parts = result?.candidates?.[0]?.content?.parts || [];
+    const rawText = parts.map((p) => p.text || '').join('\n').trim();
+    if (rawText) {
+      return { ok: true, isRateLimit: false, text: rawText, error: '' };
+    }
+
+    return {
+      ok: false,
+      isRateLimit: false,
+      text: '',
+      error: 'AI 응답 내용이 비어 있습니다.',
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      isRateLimit: false,
+      text: '',
+      error: `네트워크 연결 오류: ${err?.message || '알 수 없는 오류'}`,
+    };
   }
+}
 
   return {
     topReviewMenu: '',
@@ -152,6 +200,7 @@ export async function searchTopIngredientsBatch(partnersBatch, geminiApiKey = ''
     .join('\n');
 
   const userQuery = `다음 대한민국 식당/수산 업체들의 네이버 플레이스 메뉴와 방문자 리뷰를 검색해서, 각 업체가 주력으로 사용하는 "메인 식재료(원재료)"만 추출해줘.
+  
 
 [업체 목록]
 ${listText}
@@ -166,9 +215,9 @@ ${listText}
   ]
 }`;
 
-  const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
+ const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
   if (!res.ok) {
-    return { items: [], error: res.error };
+    return { items: [], error: res.error, isRateLimit: res.isRateLimit };
   }
 
   const parsed = parseFlexibleJson(res.text);

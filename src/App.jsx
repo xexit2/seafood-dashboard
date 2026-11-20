@@ -743,6 +743,8 @@ export default function App() {
     let omittedCount = 0;
     let lastError = '';
 
+    let hitRateLimit = false;
+
     for (let i = 0; i < total; i += batchSize) {
       if (abortSearchRef.current) break;
 
@@ -750,6 +752,12 @@ export default function App() {
       const batchRes = await searchTopIngredientsBatch(batch, supabaseConfig.geminiKey);
       if (batchRes.error && !lastError) {
         lastError = batchRes.error;
+      }
+
+      // 429 사용 한도 초과 시 연쇄 호출 없이 즉시 전체 루프 중단
+      if (batchRes.isRateLimit) {
+        hitRateLimit = true;
+        break;
       }
 
       const returnedList = batchRes.items || [];
@@ -773,8 +781,24 @@ export default function App() {
       setSearchProgress({ done: doneCount, total });
 
       if (i + batchSize < total && !abortSearchRef.current) {
-        await new Promise((r) => setTimeout(r, 350));
+        await new Promise((r) => setTimeout(r, 1500));
       }
+    }
+
+    if (hitRateLimit) {
+      showToast(
+        '⚠️ AI 무료 사용 한도를 모두 소진하여 연쇄 호출 없이 즉시 중지했습니다. (잠시 후 다시 시도하거나 유료 결제 계정을 연결해 주세요)'
+      );
+    } else if (abortSearchRef.current) {
+      showToast(`서치가 중지되었습니다. (${analyzedCount}개사 확인 결과 반영)`);
+    } else if (top5Items.length === 0) {
+      showToast(
+        lastError || '확인된 메인 원재료가 없습니다. 상단 [동기화 · AI키 설정]을 확인해 주세요.'
+      );
+    } else {
+      showToast(
+        `메인재료 TOP 5 갱신 완료! (확인 ${analyzedCount}개사 · 확인 불가 ${omittedCount}개사 생략)`
+      );
     }
 
     const sorted = Object.entries(ingredientCounts)
