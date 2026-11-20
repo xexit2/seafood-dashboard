@@ -1,36 +1,25 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
+  Anchor,
+  Cloud,
+  Database,
+  FileSpreadsheet,
+  Plus,
+  KeyRound,
+  Lock,
+  ShieldCheck,
+  CheckCircle2,
+  Loader2,
+  Package,
   TrendingUp,
   Building2,
-  Package,
-  Search,
-  Plus,
-  Filter,
   Fish,
-  Anchor,
-  AlertTriangle,
-  CheckCircle2,
-  Phone,
-  X,
+  Instagram,
+  Radio,
   RefreshCw,
   Sparkles,
-  ExternalLink,
-  MessageSquareText,
   Check,
-  Radio,
-  FileSpreadsheet,
-  Upload,
-  Globe,
-  MapPin,
-  Loader2,
-  BookOpen,
-  Lock,
-  KeyRound,
-  ShieldCheck,
-  Cloud,
-  RotateCcw,
-  Database,
-  Instagram,
+  MessageSquareText,
 } from './components/Icons';
 import WeatherSection from './components/WeatherSection';
 import AuctionSection from './components/AuctionSection';
@@ -39,30 +28,48 @@ import PartnerTableSection from './components/PartnerTableSection';
 import Modals from './components/Modals';
 import {
   APP_ID,
-  APP_VERSION,
   DEFAULT_MASTER_PIN,
   DEFAULT_SUPABASE_URL,
   DEFAULT_SUPABASE_ANON_KEY,
+  DEFAULT_SOUTH_MARKETS,
+  INITIAL_WEATHER_DATA,
   INITIAL_SPECIES_DATA,
   INITIAL_PARTNERS,
   INITIAL_SNS_FEEDS,
   isLegacySpeciesMap,
-  formatNumber,
-  formatDateTimeKST,
 } from './constants/initialData';
 import {
+  parseXlsxNatively,
   buildRegionCompanyQuery,
   openInstagramSearchInApp,
-  parseXlsxNatively,
   inferPartnerMetadata,
   parseSnsPostText,
 } from './utils/excelParser';
 import {
-  buildSupabaseHeaders,
   searchPartnerWebAndMenus,
+  searchTopIngredientsBatch,
   fetchSpeciesAuctionTrend,
-  searchBatchMainIngredients,
 } from './utils/apiService';
+
+const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
+
+// 한국 표준시(KST) 기준 현재 시각 및 당일 12:00(정오) 슬롯 키 계산
+function getKstScheduleInfo() {
+  const now = new Date();
+  const kstMs = now.getTime() + 9 * 60 * 60 * 1000;
+  const kst = new Date(kstMs);
+  const yyyy = kst.getUTCFullYear();
+  const mm = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(kst.getUTCDate()).padStart(2, '0');
+  const hh = kst.getUTCHours();
+  const min = String(kst.getUTCMinutes()).padStart(2, '0');
+  const todayStr = `${yyyy}-${mm}-${dd}`;
+  return {
+    todayStr,
+    isAfterNoon: hh >= 12,
+    formattedNow: `${yyyy}-${mm}-${dd} ${String(hh).padStart(2, '0')}:${min}`,
+  };
+}
 
 export default function App() {
   const [isDataLoaded, setIsDataLoaded] = useState(false);
@@ -80,11 +87,11 @@ export default function App() {
   const [diagResults, setDiagResults] = useState(null);
   const [isRunningDiag, setIsRunningDiag] = useState(false);
 
-  // 마스터 PIN 보안 게이트 상태
+  // 보안 마스터 PIN 상태
   const [savedPin, setSavedPin] = useState(DEFAULT_MASTER_PIN);
   const [isUnlocked, setIsUnlocked] = useState(false);
-  const [currentPinForChange, setCurrentPinForChange] = useState('');
   const [pinInput, setPinInput] = useState('');
+  const [currentPinForChange, setCurrentPinForChange] = useState('');
   const [pinConfirmInput, setPinConfirmInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [isChangingPin, setIsChangingPin] = useState(false);
@@ -97,8 +104,11 @@ export default function App() {
   const [chartPeriod, setChartPeriod] = useState('7d');
   const [speciesSearchInput, setSpeciesSearchInput] = useState('');
   const [isSearchingSpecies, setIsSearchingSpecies] = useState(false);
+  const [auctionUpdatedAt, setAuctionUpdatedAt] = useState('');
+  const [lastNoonSyncDate, setLastNoonSyncDate] = useState('');
+  const [isRefreshingAuction, setIsRefreshingAuction] = useState(false);
 
-  // 거래업체 · 검색 · 페이지네이션 상태
+  // 거래처 · SNS 상태
   const [partners, setPartners] = useState(INITIAL_PARTNERS);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('전체');
@@ -110,31 +120,24 @@ export default function App() {
   const [isBatchSearching, setIsBatchSearching] = useState(false);
   const [selectedPartnerDetail, setSelectedPartnerDetail] = useState(null);
 
-  // 인기 메인재료 TOP 5 상태
-  const [topIngredientsState, setTopIngredientsState] = useState({
-    items: [],
-    updatedAt: '',
-    analyzedCount: 0,
-    confirmedCount: 0,
-    omittedCount: 0,
-    errorSummary: '',
-  });
-  const [isSearchingTopIngredients, setIsSearchingTopIngredients] = useState(false);
-  const [ingredientSearchProgress, setIngredientSearchProgress] = useState({
-    currentBatch: 0,
-    totalBatches: 0,
-    confirmedSoFar: 0,
-    failedBatches: 0,
-  });
-  const cancelIngredientSearchRef = useRef(false);
-
-  // SNS 피드 상태
   const [snsFeeds, setSnsFeeds] = useState(INITIAL_SNS_FEEDS);
   const [isSyncingSns, setIsSyncingSns] = useState(false);
   const [snsInputCompany, setSnsInputCompany] = useState('');
   const [snsInputText, setSnsInputText] = useState('');
 
-  // 모달 · 엑셀 업로드 상태
+  // 메인재료 TOP 5 상태
+  const [topIngredientsState, setTopIngredientsState] = useState({
+    items: [],
+    updatedAt: '',
+    analyzedCount: 0,
+    omittedCount: 0,
+    lastError: '',
+  });
+  const [isSearchingTopIngredients, setIsSearchingTopIngredients] = useState(false);
+  const [searchProgress, setSearchProgress] = useState({ done: 0, total: 0 });
+  const abortSearchRef = useRef(false);
+
+  // 모달 · 토스트 · 폼 상태
   const [activeModal, setActiveModal] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
   const [excelPreviewRows, setExcelPreviewRows] = useState([]);
@@ -179,7 +182,8 @@ export default function App() {
       const localPartners = localStorage.getItem(`${APP_ID}_partners`);
       const localSpecies = localStorage.getItem(`${APP_ID}_species`);
       const localFeeds = localStorage.getItem(`${APP_ID}_feeds`);
-      const localTopIngredients = localStorage.getItem(`${APP_ID}_top_ingredients`);
+      const localTopIng = localStorage.getItem(`${APP_ID}_top_ingredients`);
+      const localAuctionMeta = localStorage.getItem(`${APP_ID}_auction_meta`);
       const localSb = localStorage.getItem(`${APP_ID}_supabase`);
 
       if (localSb) {
@@ -196,15 +200,6 @@ export default function App() {
         loadedSbKey = normalizedSb.anonKey;
         setSupabaseConfig(normalizedSb);
         setSupabaseForm(normalizedSb);
-      } else {
-        localStorage.setItem(
-          `${APP_ID}_supabase`,
-          JSON.stringify({
-            url: DEFAULT_SUPABASE_URL,
-            anonKey: DEFAULT_SUPABASE_ANON_KEY,
-            geminiKey: '',
-          })
-        );
       }
 
       if (localPin && /^\d{4}$/.test(localPin)) {
@@ -224,18 +219,14 @@ export default function App() {
           if (!parsedSp[selectedSpecies]) {
             setSelectedSpecies(Object.keys(parsedSp)[0]);
           }
-        } else {
-          setSpeciesData(INITIAL_SPECIES_DATA);
-          setSelectedSpecies('삼치');
-          localStorage.setItem(`${APP_ID}_species`, JSON.stringify(INITIAL_SPECIES_DATA));
         }
       }
       if (localFeeds) setSnsFeeds(JSON.parse(localFeeds));
-      if (localTopIngredients) {
-        const parsedTop = JSON.parse(localTopIngredients);
-        if (parsedTop && Array.isArray(parsedTop.items)) {
-          setTopIngredientsState(parsedTop);
-        }
+      if (localTopIng) setTopIngredientsState(JSON.parse(localTopIng));
+      if (localAuctionMeta) {
+        const meta = JSON.parse(localAuctionMeta);
+        if (meta.auctionUpdatedAt) setAuctionUpdatedAt(meta.auctionUpdatedAt);
+        if (meta.lastNoonSyncDate) setLastNoonSyncDate(meta.lastNoonSyncDate);
       }
     } catch (e) {
       console.warn('로컬 저장소 불러오기 건너뜀:', e);
@@ -255,28 +246,29 @@ export default function App() {
       setSyncStatus('클라우드 동기화 중...');
       const cleanUrl = url.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
       const cleanKey = anonKey.trim();
+      const headers = {
+        apikey: cleanKey,
+        Accept: 'application/json',
+        'Accept-Profile': 'public',
+      };
+      if (cleanKey.startsWith('eyJ')) {
+        headers.Authorization = `Bearer ${cleanKey}`;
+      }
 
       const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?id=eq.main&select=*`, {
-        headers: buildSupabaseHeaders(cleanKey),
+        headers,
       });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        throw new Error(`HTTP ${res.status}: ${errText}`);
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const rows = await res.json();
       if (Array.isArray(rows) && rows.length > 0 && rows[0].payload) {
         const remote = rows[0].payload;
-        if (remote.pin && /^\d{4}$/.test(String(remote.pin))) {
-          const verifiedPin = String(remote.pin);
-          setSavedPin(verifiedPin);
-          localStorage.setItem(`${APP_ID}_pin`, verifiedPin);
+        if (remote.pin && /^\d{4}$/.test(remote.pin)) {
+          setSavedPin(remote.pin);
+          localStorage.setItem(`${APP_ID}_pin`, remote.pin);
         }
         if (Array.isArray(remote.partners)) {
           setPartners(remote.partners);
           localStorage.setItem(`${APP_ID}_partners`, JSON.stringify(remote.partners));
-          if (remote.partners.length > 0) {
-            setSnsInputCompany((prev) => prev || remote.partners[0].companyName);
-          }
         }
         if (remote.speciesData && !isLegacySpeciesMap(remote.speciesData)) {
           setSpeciesData(remote.speciesData);
@@ -284,10 +276,28 @@ export default function App() {
           if (!remote.speciesData[selectedSpecies]) {
             setSelectedSpecies(Object.keys(remote.speciesData)[0]);
           }
-        } else {
-          setSpeciesData(INITIAL_SPECIES_DATA);
-          setSelectedSpecies('삼치');
-          localStorage.setItem(`${APP_ID}_species`, JSON.stringify(INITIAL_SPECIES_DATA));
+        }
+        if (remote.auctionUpdatedAt) {
+          setAuctionUpdatedAt(remote.auctionUpdatedAt);
+        }
+        if (remote.lastNoonSyncDate) {
+          setLastNoonSyncDate(remote.lastNoonSyncDate);
+        }
+        if (remote.auctionUpdatedAt || remote.lastNoonSyncDate) {
+          localStorage.setItem(
+            `${APP_ID}_auction_meta`,
+            JSON.stringify({
+              auctionUpdatedAt: remote.auctionUpdatedAt || '',
+              lastNoonSyncDate: remote.lastNoonSyncDate || '',
+            })
+          );
+        }
+        if (remote.topIngredients && Array.isArray(remote.topIngredients.items)) {
+          setTopIngredientsState(remote.topIngredients);
+          localStorage.setItem(
+            `${APP_ID}_top_ingredients`,
+            JSON.stringify(remote.topIngredients)
+          );
         }
         if (remote.geminiKey) {
           setSupabaseConfig((prev) => {
@@ -300,10 +310,6 @@ export default function App() {
         if (Array.isArray(remote.snsFeeds)) {
           setSnsFeeds(remote.snsFeeds);
           localStorage.setItem(`${APP_ID}_feeds`, JSON.stringify(remote.snsFeeds));
-        }
-        if (remote.topIngredients && Array.isArray(remote.topIngredients.items)) {
-          setTopIngredientsState(remote.topIngredients);
-          localStorage.setItem(`${APP_ID}_top_ingredients`, JSON.stringify(remote.topIngredients));
         }
       }
       setSyncStatus('PC·모바일 실시간 동기화됨');
@@ -318,8 +324,12 @@ export default function App() {
     const nextPartners = overrides.partners !== undefined ? overrides.partners : partners;
     const nextSpecies = overrides.speciesData !== undefined ? overrides.speciesData : speciesData;
     const nextFeeds = overrides.snsFeeds !== undefined ? overrides.snsFeeds : snsFeeds;
-    const nextTopIngredients =
+    const nextTopIng =
       overrides.topIngredients !== undefined ? overrides.topIngredients : topIngredientsState;
+    const nextAuctionUpdatedAt =
+      overrides.auctionUpdatedAt !== undefined ? overrides.auctionUpdatedAt : auctionUpdatedAt;
+    const nextLastNoonSyncDate =
+      overrides.lastNoonSyncDate !== undefined ? overrides.lastNoonSyncDate : lastNoonSyncDate;
     const activeSb = overrides.supabaseConfig || supabaseConfig;
 
     try {
@@ -327,7 +337,14 @@ export default function App() {
       localStorage.setItem(`${APP_ID}_partners`, JSON.stringify(nextPartners));
       localStorage.setItem(`${APP_ID}_species`, JSON.stringify(nextSpecies));
       localStorage.setItem(`${APP_ID}_feeds`, JSON.stringify(nextFeeds));
-      localStorage.setItem(`${APP_ID}_top_ingredients`, JSON.stringify(nextTopIngredients));
+      localStorage.setItem(`${APP_ID}_top_ingredients`, JSON.stringify(nextTopIng));
+      localStorage.setItem(
+        `${APP_ID}_auction_meta`,
+        JSON.stringify({
+          auctionUpdatedAt: nextAuctionUpdatedAt,
+          lastNoonSyncDate: nextLastNoonSyncDate,
+        })
+      );
     } catch (e) {
       console.warn('로컬 저장 오류:', e);
     }
@@ -337,13 +354,20 @@ export default function App() {
         setSyncStatus('클라우드 저장 중...');
         const cleanUrl = activeSb.url.trim().replace(/\/rest\/v1\/?$/i, '').replace(/\/$/, '');
         const cleanKey = activeSb.anonKey.trim();
+        const headers = {
+          apikey: cleanKey,
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'Content-Profile': 'public',
+          Prefer: 'resolution=merge-duplicates,return=minimal',
+        };
+        if (cleanKey.startsWith('eyJ')) {
+          headers.Authorization = `Bearer ${cleanKey}`;
+        }
 
         const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?on_conflict=id`, {
           method: 'POST',
-          headers: buildSupabaseHeaders(cleanKey, {
-            'Content-Type': 'application/json',
-            Prefer: 'resolution=merge-duplicates,return=minimal',
-          }),
+          headers,
           body: JSON.stringify({
             id: 'main',
             payload: {
@@ -351,46 +375,131 @@ export default function App() {
               partners: nextPartners,
               speciesData: nextSpecies,
               snsFeeds: nextFeeds,
-              topIngredients: nextTopIngredients,
+              topIngredients: nextTopIng,
+              auctionUpdatedAt: nextAuctionUpdatedAt,
+              lastNoonSyncDate: nextLastNoonSyncDate,
               geminiKey: activeSb.geminiKey || '',
             },
             updated_at: new Date().toISOString(),
           }),
         });
-        if (!res.ok) {
-          const errDetail = await res.text().catch(() => '');
-          throw new Error(`HTTP ${res.status}: ${errDetail}`);
-        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         setSyncStatus('PC·모바일 실시간 동기화됨');
-        return;
       } catch (err) {
-        const msg = String(err?.message || '');
-        if (
-          msg.includes('42501') ||
-          msg.includes('row-level security') ||
-          msg.includes('permission denied')
-        ) {
-          setSyncStatus('RLS/권한 차단 (SQL 재실행 필요)');
-          showToast(
-            'Supabase 보안 잠금(RLS) 또는 권한 오류입니다. SQL Editor에서 Run without RLS로 실행해 주세요.'
-          );
-        } else if (msg.includes('404') || msg.includes('PGRST205')) {
-          setSyncStatus('테이블 미노출 (Exposed tables 확인)');
-          showToast(
-            'Supabase Data API > Settings > Exposed tables에 seafood_state가 체크되어 있는지 확인해 주세요.'
-          );
-        } else if (msg.includes('401') || msg.includes('403') || msg.includes('Invalid API key')) {
-          setSyncStatus('API 키 오류 (키 다시 확인)');
-          showToast('Supabase API Keys에서 anon public 키를 다시 복사해 넣어주세요.');
-        } else {
-          setSyncStatus(`연결 오류 (${msg.slice(0, 32)})`);
-          showToast(`클라우드 연결 응답: ${msg.slice(0, 80)}`);
-        }
-        return;
+        setSyncStatus('클라우드 저장 지연 (브라우저 저장됨)');
+      }
+    }
+  };
+
+  // 전 어종 시세 일괄 갱신 (12시 자동 갱신 및 실시간 수동 갱신 공용)
+  const refreshAllSpeciesAuction = async (isAutoNoon = false) => {
+    if (isRefreshingAuction) return;
+    setIsRefreshingAuction(true);
+
+    const schedule = getKstScheduleInfo();
+    const keys = Object.keys(speciesData);
+    const updatedMap = { ...speciesData };
+    let liveUpdatedCount = 0;
+
+    for (const spKey of keys) {
+      const existing = speciesData[spKey];
+      const marketNames =
+        Array.isArray(existing?.markets) && existing.markets.length > 0
+          ? existing.markets.map((m) => m.market)
+          : DEFAULT_SOUTH_MARKETS;
+
+      const res = await fetchSpeciesAuctionTrend(
+        spKey,
+        supabaseConfig.geminiKey,
+        marketNames,
+        existing
+      );
+      if (res && res.data) {
+        updatedMap[spKey] = res.data;
+        if (!res.isFallback) liveUpdatedCount += 1;
       }
     }
 
-    setSyncStatus('브라우저 자동 저장됨');
+    const updatedLabel = `${schedule.formattedNow}${isAutoNoon ? ' (12:00 자동)' : ' (수동)'}`;
+    const nextNoonDate = schedule.isAfterNoon ? schedule.todayStr : lastNoonSyncDate;
+
+    setSpeciesData(updatedMap);
+    setAuctionUpdatedAt(updatedLabel);
+    if (nextNoonDate) setLastNoonSyncDate(nextNoonDate);
+    setIsRefreshingAuction(false);
+
+    await persistDashboardState({
+      speciesData: updatedMap,
+      auctionUpdatedAt: updatedLabel,
+      lastNoonSyncDate: nextNoonDate,
+    });
+
+    if (isAutoNoon) {
+      showToast('낮 12:00 정기 스케줄에 따라 부산·남해 위판장 시세가 자동 갱신되었습니다.');
+    } else if (liveUpdatedCount > 0) {
+      showToast(`부산·남해 위판장 ${liveUpdatedCount}개 어종 실시간 시세가 갱신되었습니다!`);
+    } else {
+      showToast(
+        '시세 갱신이 실행되었습니다. (실시간 AI 자동 시세 조회는 상단 [동기화 · AI키 설정]에 Gemini 키 입력 시 활성화됩니다)'
+      );
+    }
+  };
+
+  // 매일 낮 12:00(KST) 자동 시세 갱신 스케줄러
+  useEffect(() => {
+    if (!isDataLoaded || !isUnlocked) return;
+
+    const checkAndRunNoonSync = () => {
+      const schedule = getKstScheduleInfo();
+      if (schedule.isAfterNoon && lastNoonSyncDate !== schedule.todayStr) {
+        refreshAllSpeciesAuction(true);
+      }
+    };
+
+    checkAndRunNoonSync();
+    const timer = setInterval(checkAndRunNoonSync, 60 * 1000);
+    return () => clearInterval(timer);
+  }, [isDataLoaded, isUnlocked, lastNoonSyncDate]);
+
+  // 위판장 목록·시세 직접 수정 반영
+  const handleUpdateSpeciesMarkets = async (spName, updatedMarkets) => {
+    const target = speciesData[spName];
+    if (!target) return;
+
+    const validPrices = updatedMarkets
+      .map((m) => Number(m.price))
+      .filter((p) => Number.isFinite(p) && p > 0);
+    const newAvg =
+      validPrices.length > 0
+        ? Math.round(validPrices.reduce((a, b) => a + b, 0) / validPrices.length)
+        : target.currentAvg;
+
+    const prevAvg = target.currentAvg || newAvg;
+    const diffRate =
+      prevAvg > 0 ? Number((((newAvg - prevAvg) / prevAvg) * 100).toFixed(1)) : 0;
+
+    const updatedHistory7d = [...target.history7d];
+    if (updatedHistory7d.length > 0) {
+      updatedHistory7d[updatedHistory7d.length - 1] = {
+        ...updatedHistory7d[updatedHistory7d.length - 1],
+        price: newAvg,
+      };
+    }
+
+    const nextSpeciesData = {
+      ...speciesData,
+      [spName]: {
+        ...target,
+        currentAvg: newAvg,
+        prevDiffRate: diffRate,
+        history7d: updatedHistory7d,
+        markets: updatedMarkets,
+      },
+    };
+
+    setSpeciesData(nextSpeciesData);
+    await persistDashboardState({ speciesData: nextSpeciesData });
+    showToast(`[${spName}] 위판장 목록(${updatedMarkets.length}곳) 및 시세가 저장되었습니다.`);
   };
 
   const handleRunConnectionDiagnostics = async () => {
@@ -408,81 +517,74 @@ export default function App() {
       gemini: { ok: false, detail: '미실행' },
     };
 
-    if (!cleanUrl || !cleanSbKey) {
-      results.sbRead = { ok: false, detail: 'URL 또는 Anon Key가 비어 있습니다.' };
-    } else {
-      try {
-        const res = await fetch(
-          `${cleanUrl}/rest/v1/seafood_state?id=eq.main&select=id,updated_at`,
-          { headers: buildSupabaseHeaders(cleanSbKey) }
-        );
-        const text = await res.text().catch(() => '');
-        if (res.ok) {
-          results.sbRead = { ok: true, detail: `HTTP ${res.status} 정상 (public 스키마 조회 성공)` };
-        } else {
-          results.sbRead = { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 120)}` };
-        }
-      } catch (e) {
-        results.sbRead = { ok: false, detail: `네트워크 차단/오류: ${e.message}` };
-      }
+    const sbHeaders = {
+      apikey: cleanSbKey,
+      Accept: 'application/json',
+      'Accept-Profile': 'public',
+    };
+    if (cleanSbKey.startsWith('eyJ')) {
+      sbHeaders.Authorization = `Bearer ${cleanSbKey}`;
     }
 
-    if (!cleanUrl || !cleanSbKey) {
-      results.sbWrite = { ok: false, detail: 'URL 또는 Anon Key가 비어 있습니다.' };
-    } else {
-      try {
-        const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?on_conflict=id`, {
-          method: 'POST',
-          headers: buildSupabaseHeaders(cleanSbKey, {
-            'Content-Type': 'application/json',
-            Prefer: 'resolution=merge-duplicates,return=minimal',
-          }),
-          body: JSON.stringify({
-            id: 'main',
-            payload: {
-              pin: savedPin,
-              partners,
-              speciesData,
-              snsFeeds,
-              topIngredients: topIngredientsState,
-              geminiKey: cleanGeminiKey,
-            },
-            updated_at: new Date().toISOString(),
-          }),
-        });
-        const text = await res.text().catch(() => '');
-        if (res.ok) {
-          results.sbWrite = { ok: true, detail: `HTTP ${res.status} 정상 (클라우드 저장 성공)` };
-          setSyncStatus('PC·모바일 실시간 동기화됨');
-        } else {
-          results.sbWrite = { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 140)}` };
-        }
-      } catch (e) {
-        results.sbWrite = { ok: false, detail: `네트워크 차단/오류: ${e.message}` };
-      }
+    try {
+      const res = await fetch(
+        `${cleanUrl}/rest/v1/seafood_state?id=eq.main&select=id,updated_at`,
+        { headers: sbHeaders }
+      );
+      const text = await res.text().catch(() => '');
+      results.sbRead = res.ok
+        ? { ok: true, detail: `HTTP ${res.status} 정상 (조회 성공)` }
+        : { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 120)}` };
+    } catch (e) {
+      results.sbRead = { ok: false, detail: e.message };
+    }
+
+    try {
+      const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?on_conflict=id`, {
+        method: 'POST',
+        headers: {
+          ...sbHeaders,
+          'Content-Type': 'application/json',
+          'Content-Profile': 'public',
+          Prefer: 'resolution=merge-duplicates,return=minimal',
+        },
+        body: JSON.stringify({
+          id: 'main',
+          payload: {
+            pin: savedPin,
+            partners,
+            speciesData,
+            snsFeeds,
+            topIngredients: topIngredientsState,
+            auctionUpdatedAt,
+            lastNoonSyncDate,
+            geminiKey: cleanGeminiKey,
+          },
+          updated_at: new Date().toISOString(),
+        }),
+      });
+      const text = await res.text().catch(() => '');
+      results.sbWrite = res.ok
+        ? { ok: true, detail: `HTTP ${res.status} 정상 (저장 성공)` }
+        : { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 120)}` };
+    } catch (e) {
+      results.sbWrite = { ok: false, detail: e.message };
     }
 
     if (!cleanGeminiKey) {
-      results.gemini = { ok: false, detail: 'Gemini API 키가 입력되지 않았습니다.' };
+      results.gemini = { ok: false, detail: 'Gemini API 키가 비어 있습니다.' };
     } else {
       try {
         const res = await fetch(
           'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1',
-          {
-            headers: { 'x-goog-api-key': cleanGeminiKey },
-          }
+          { headers: { 'x-goog-api-key': cleanGeminiKey } }
         );
         const text = await res.text().catch(() => '');
-        if (res.ok) {
-          results.gemini = {
-            ok: true,
-            detail: `HTTP ${res.status} 정상 (${cleanGeminiKey.startsWith('AQ.') ? '신규 AQ. 인증키' : '표준키'} 연결 확인)`,
-          };
-        } else {
-          results.gemini = { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 140)}` };
-        }
+        results.gemini = res.ok
+          ? { ok: true, detail: `HTTP ${res.status} 정상 (API 키 인증 성공)` }
+          : { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 120)}` };
       } catch (e) {
-        results.gemini = { ok: false, detail: `네트워크 차단/오류: ${e.message}` };
+        results.gemini = { ok: false, detail: e.message };
       }
     }
 
@@ -500,66 +602,49 @@ export default function App() {
     setSupabaseConfig(trimmed);
     localStorage.setItem(`${APP_ID}_supabase`, JSON.stringify(trimmed));
     setActiveModal(null);
-
-    if (trimmed.url && trimmed.anonKey) {
-      await fetchFromSupabase(trimmed.url, trimmed.anonKey);
-      await persistDashboardState({ supabaseConfig: trimmed });
-      showToast('클라우드 DB 및 AI API 설정이 저장되었습니다!');
-    } else {
-      setSyncStatus('브라우저 자동 저장됨');
-      showToast(
-        trimmed.geminiKey
-          ? 'Google Gemini AI 키가 저장되었습니다! 이제 실제 홈페이지에서도 AI 검색이 작동합니다.'
-          : '설정이 저장되었습니다.'
-      );
-    }
+    await persistDashboardState({ supabaseConfig: trimmed });
+    showToast('클라우드 DB 및 AI API 설정이 저장되었습니다!');
   };
 
   const handleResetSpeciesToDefault = async () => {
     setSpeciesData(INITIAL_SPECIES_DATA);
     setSelectedSpecies('삼치');
     await persistDashboardState({ speciesData: INITIAL_SPECIES_DATA });
-    showToast('위판장 판매 어종이 기본 4종(삼치·금태·고등어·전갱이)으로 초기화되었습니다.');
+    showToast('부산·남해 위판장 기준 기본 4종(삼치·금태·고등어·전갱이)으로 초기화되었습니다.');
   };
 
   const handleLockScreen = () => {
     setIsUnlocked(false);
-    setIsChangingPin(false);
-    setCurrentPinForChange('');
     setPinInput('');
     setPinConfirmInput('');
+    setCurrentPinForChange('');
     setPinError('');
   };
 
   const handlePinSubmit = async (e) => {
     e.preventDefault();
+    if (pinInput.length !== 4 || !/^\d{4}$/.test(pinInput)) {
+      setPinError('4자리 숫자를 정확히 입력해주세요.');
+      return;
+    }
 
-    if (isUnlocked && isChangingPin) {
+    if (isChangingPin && isUnlocked) {
       if (currentPinForChange !== savedPin) {
-        setPinError('현재 4자리 비밀번호(PIN)가 일치하지 않습니다.');
-        return;
-      }
-      if (pinInput.length !== 4 || !/^\d{4}$/.test(pinInput)) {
-        setPinError('새 비밀번호는 4자리 숫자로 정확히 입력해주세요.');
+        setPinError('현재 비밀번호(PIN)가 일치하지 않습니다.');
         return;
       }
       if (pinInput !== pinConfirmInput) {
-        setPinError('새 PIN 번호 확인이 일치하지 않습니다.');
+        setPinError('새 PIN 확인 번호가 일치하지 않습니다.');
         return;
       }
       setSavedPin(pinInput);
       setIsChangingPin(false);
-      setCurrentPinForChange('');
       setPinInput('');
       setPinConfirmInput('');
+      setCurrentPinForChange('');
       setPinError('');
       await persistDashboardState({ pin: pinInput });
-      showToast('마스터 PIN 번호가 변경되어 PC·모바일 모든 기기에 즉시 적용되었습니다.');
-      return;
-    }
-
-    if (pinInput.length !== 4 || !/^\d{4}$/.test(pinInput)) {
-      setPinError('4자리 숫자를 정확히 입력해주세요.');
+      showToast('마스터 PIN 번호가 변경되어 전 기기에 동기화되었습니다.');
       return;
     }
 
@@ -568,31 +653,18 @@ export default function App() {
       setPinInput('');
       setPinError('');
     } else {
-      setPinError('비밀번호가 일치하지 않습니다. 승인된 사용자만 접속할 수 있습니다.');
+      setPinError('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
       setPinInput('');
     }
   };
 
   const handleClearAllPartners = async () => {
-    const emptyTop = {
-      items: [],
-      updatedAt: '',
-      analyzedCount: 0,
-      confirmedCount: 0,
-      omittedCount: 0,
-      errorSummary: '',
-    };
     setPartners([]);
     setSnsFeeds([]);
-    setTopIngredientsState(emptyTop);
     setSelectedPartnerDetail(null);
     setCurrentPage(1);
-    await persistDashboardState({
-      partners: [],
-      snsFeeds: [],
-      topIngredients: emptyTop,
-    });
-    showToast('등록된 거래업체 목록이 모두 깨끗하게 비워졌습니다.');
+    await persistDashboardState({ partners: [], snsFeeds: [] });
+    showToast('등록된 거래업체 목록이 모두 비워졌습니다.');
   };
 
   const handleSearchAndAddSpecies = async (e) => {
@@ -608,212 +680,115 @@ export default function App() {
     }
 
     setIsSearchingSpecies(true);
-    const res = await fetchSpeciesAuctionTrend(keyword, supabaseConfig.geminiKey);
+    const res = await fetchSpeciesAuctionTrend(
+      keyword,
+      supabaseConfig.geminiKey,
+      DEFAULT_SOUTH_MARKETS
+    );
     setIsSearchingSpecies(false);
 
     if (res && res.data) {
-      const nextSpeciesData = {
-        ...speciesData,
-        [res.data.name]: res.data,
-      };
+      const nextSpeciesData = { ...speciesData, [res.data.name]: res.data };
       setSpeciesData(nextSpeciesData);
       setSelectedSpecies(res.data.name);
       setSpeciesSearchInput('');
       persistDashboardState({ speciesData: nextSpeciesData });
-
-      if (res.isFallback) {
-        showToast(
-          `'${res.data.name}' 탭이 추가되었습니다! (실시간 AI 시세 자동 조회는 상단 [동기화 · AI키 설정]에 Gemini API 키 입력 시 활성화됩니다)`
-        );
-      } else {
-        showToast(`'${res.data.name}' 전국 위판장 시세 및 가격 추이가 추가되었습니다!`);
-      }
+      showToast(
+        res.isFallback
+          ? `'${res.data.name}' 탭이 부산·남해 위판장 기준으로 추가되었습니다!`
+          : `'${res.data.name}' 부산·남해 위판장 시세 및 가격 추이가 추가되었습니다!`
+      );
     }
   };
 
-  const handleRunTopIngredientsSearch = async () => {
-    if (isSearchingTopIngredients) return;
+  const handleStartTopIngredientsSearch = async () => {
+    setActiveModal(null);
     if (partners.length === 0) {
-      showToast('먼저 엑셀 업로드나 업체 등록으로 거래처를 추가해 주세요.');
+      showToast('먼저 엑셀 파일을 업로드해 거래업체를 등록해 주세요.');
       return;
     }
 
-    const BATCH_SIZE = 5;
-    const totalBatches = Math.ceil(partners.length / BATCH_SIZE);
-    cancelIngredientSearchRef.current = false;
+    abortSearchRef.current = false;
     setIsSearchingTopIngredients(true);
-    setIngredientSearchProgress({
-      currentBatch: 0,
-      totalBatches,
-      confirmedSoFar: 0,
-      failedBatches: 0,
-    });
 
-    const ignoredTerms = new Set([
-      '',
-      '기타',
-      '수산물',
-      '해산물',
-      '생선',
-      '활어',
-      '회',
-      '모둠',
-      '모듬',
-      '확인불가',
-      '미확인',
-      '없음',
-      '알수없음',
-      '미상',
-      '식재료',
-      '메뉴',
-    ]);
+    const batchSize = 5;
+    const total = partners.length;
+    setSearchProgress({ done: 0, total });
 
-    const ingredientPartnerMap = {};
-    let confirmedCount = 0;
+    const ingredientCounts = {};
+    let analyzedCount = 0;
     let omittedCount = 0;
-    let processedCount = 0;
-    let failedBatches = 0;
-    let lastErrorMsg = '';
-    let wasCancelled = false;
+    let lastError = '';
 
-    try {
-      for (let b = 0; b < totalBatches; b++) {
-        if (cancelIngredientSearchRef.current) {
-          wasCancelled = true;
-          break;
-        }
+    for (let i = 0; i < total; i += batchSize) {
+      if (abortSearchRef.current) break;
 
-        const startIdx = b * BATCH_SIZE;
-        const batch = partners.slice(startIdx, startIdx + BATCH_SIZE);
-        const batchRes = await searchBatchMainIngredients(batch, supabaseConfig.geminiKey);
-
-        if (!batchRes.ok) {
-          failedBatches += 1;
-          if (batchRes.error) lastErrorMsg = batchRes.error;
-        }
-
-        const resultsArr = Array.isArray(batchRes.results) ? batchRes.results : [];
-        const byIdx = new Map();
-        const byName = new Map();
-
-        resultsArr.forEach((r) => {
-          if (!r || typeof r !== 'object') return;
-          if (r.idx !== undefined && r.idx !== null && !Number.isNaN(Number(r.idx))) {
-            byIdx.set(Number(r.idx), r.ingredients);
-          }
-          if (r.companyName) {
-            const norm = String(r.companyName).replace(/\s+/g, '').toLowerCase();
-            byName.set(norm, r.ingredients);
-          }
-        });
-
-        batch.forEach((partner, localIdx) => {
-          processedCount += 1;
-          const nameKey = String(partner.companyName || '').trim();
-          const normName = nameKey.replace(/\s+/g, '').toLowerCase();
-
-          let rawIngredients = byIdx.has(localIdx) ? byIdx.get(localIdx) : byName.get(normName);
-
-          if (!Array.isArray(rawIngredients)) {
-            for (const [k, v] of byName.entries()) {
-              if (k && normName && (k.includes(normName) || normName.includes(k))) {
-                rawIngredients = v;
-                break;
-              }
-            }
-          }
-
-          const validIngredients = Array.isArray(rawIngredients)
-            ? Array.from(
-                new Set(
-                  rawIngredients
-                    .map((ing) => String(ing || '').trim())
-                    .filter((ing) => ing.length > 0 && !ignoredTerms.has(ing.replace(/\s+/g, '')))
-                )
-              )
-            : [];
-
-          if (validIngredients.length > 0) {
-            confirmedCount += 1;
-            validIngredients.forEach((ing) => {
-              if (!ingredientPartnerMap[ing]) {
-                ingredientPartnerMap[ing] = new Set();
-              }
-              ingredientPartnerMap[ing].add(nameKey);
-            });
-          } else {
-            omittedCount += 1;
-          }
-        });
-
-        setIngredientSearchProgress({
-          currentBatch: b + 1,
-          totalBatches,
-          confirmedSoFar: confirmedCount,
-          failedBatches,
-        });
-
-        if (b + 1 < totalBatches && !cancelIngredientSearchRef.current) {
-          await new Promise((r) => setTimeout(r, 350));
-        }
+      const batch = partners.slice(i, i + batchSize);
+      const batchRes = await searchTopIngredientsBatch(batch, supabaseConfig.geminiKey);
+      if (batchRes.error && !lastError) {
+        lastError = batchRes.error;
       }
 
-      const sorted = Object.entries(ingredientPartnerMap)
-        .map(([name, partnerSet]) => ({
-          name,
-          count: partnerSet.size,
-          partnerNames: Array.from(partnerSet),
-        }))
-        .sort((a, b) => b.count - a.count);
+      const returnedList = batchRes.items || [];
+      batch.forEach((p, bIdx) => {
+        const matched =
+          returnedList.find((r) => r.companyName === p.companyName) || returnedList[bIdx];
+        const ings = Array.isArray(matched?.ingredients) ? matched.ingredients : [];
 
-      const top5Items = sorted.slice(0, 5).map((item, idx) => ({
-        ...item,
-        rank: idx + 1,
-        share: confirmedCount > 0 ? ((item.count / confirmedCount) * 100).toFixed(1) : '0.0',
-      }));
+        if (ings.length === 0) {
+          omittedCount += 1;
+        } else {
+          analyzedCount += 1;
+          const uniqueIngs = Array.from(new Set(ings));
+          uniqueIngs.forEach((ing) => {
+            ingredientCounts[ing] = (ingredientCounts[ing] || 0) + 1;
+          });
+        }
+      });
 
-      const errorSummary =
-        failedBatches > 0
-          ? `총 ${totalBatches}개 배치 중 ${failedBatches}개 배치 호출 실패 — 최근 응답: ${lastErrorMsg}`
-          : '';
+      const doneCount = Math.min(i + batch.length, total);
+      setSearchProgress({ done: doneCount, total });
 
-      const nextTopState = {
-        items: top5Items,
-        updatedAt: formatDateTimeKST(new Date()),
-        analyzedCount: processedCount,
-        confirmedCount,
-        omittedCount,
-        errorSummary,
-      };
-
-      setTopIngredientsState(nextTopState);
-      await persistDashboardState({ topIngredients: nextTopState });
-
-      if (wasCancelled) {
-        showToast(
-          `서치가 중지되었습니다. (${processedCount}/${partners.length}개사 부분 집계 완료 · 확인 ${confirmedCount}개사)`
-        );
-      } else if (confirmedCount === 0 && errorSummary) {
-        showToast('API 호출 오류로 메인재료를 가져오지 못했습니다. 하단 오류 내용을 확인해 주세요.');
-      } else {
-        showToast(
-          `메인재료 TOP 5 갱신 완료! (전체 ${processedCount}개사 중 확인 ${confirmedCount}개사 · 생략 ${omittedCount}개사)`
-        );
+      if (i + batchSize < total && !abortSearchRef.current) {
+        await new Promise((r) => setTimeout(r, 350));
       }
-    } catch (err) {
-      console.error('메인재료 TOP 5 서치 오류:', err);
-      const errState = {
-        ...topIngredientsState,
-        updatedAt: formatDateTimeKST(new Date()),
-        analyzedCount: processedCount,
-        confirmedCount,
-        omittedCount,
-        errorSummary: `예기치 않은 오류: ${err.message}`,
-      };
-      setTopIngredientsState(errState);
-      showToast(`메인재료 서치 중 오류 발생: ${err.message}`);
-    } finally {
-      setIsSearchingTopIngredients(false);
+    }
+
+    const sorted = Object.entries(ingredientCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5);
+    const totalMentions = sorted.reduce((acc, [, cnt]) => acc + cnt, 0) || 1;
+
+    const top5Items = sorted.map(([name, count], idx) => ({
+      rank: idx + 1,
+      name,
+      count,
+      share: ((count / totalMentions) * 100).toFixed(1),
+    }));
+
+    const schedule = getKstScheduleInfo();
+    const nextTopState = {
+      items: top5Items,
+      updatedAt: schedule.formattedNow,
+      analyzedCount,
+      omittedCount,
+      lastError: top5Items.length === 0 ? lastError : '',
+    };
+
+    setTopIngredientsState(nextTopState);
+    setIsSearchingTopIngredients(false);
+    await persistDashboardState({ topIngredients: nextTopState });
+
+    if (abortSearchRef.current) {
+      showToast(`서치가 중지되었습니다. (${analyzedCount}개사 확인 결과 반영)`);
+    } else if (top5Items.length === 0) {
+      showToast(
+        '확인된 메인 원재료가 없습니다. 상단 [동기화 · AI키 설정]에서 Gemini API 키와 연결 테스트를 확인해 주세요.'
+      );
+    } else {
+      showToast(
+        `메인재료 TOP 5 갱신 완료! (확인 ${analyzedCount}개사 · 확인 불가 ${omittedCount}개사 생략)`
+      );
     }
   };
 
@@ -832,22 +807,17 @@ export default function App() {
     const q = String(searchQuery || '').toLowerCase();
     return partners.filter((p) => {
       if (!p) return false;
-      const cName = String(p.companyName || '').toLowerCase();
-      const mProd = String(p.mainProduct || '').toLowerCase();
-      const topMenu = String(p.topReviewMenu || '').toLowerCase();
-      const mgr = String(p.manager || '').toLowerCase();
-      const ph = String(p.phone || '');
-      const addr = String(p.address || '').toLowerCase();
-
       const matchesSearch =
-        cName.includes(q) ||
-        mProd.includes(q) ||
-        topMenu.includes(q) ||
-        mgr.includes(q) ||
-        ph.includes(q) ||
-        addr.includes(q);
+        String(p.companyName || '').toLowerCase().includes(q) ||
+        String(p.mainProduct || '').toLowerCase().includes(q) ||
+        String(p.topReviewMenu || '').toLowerCase().includes(q) ||
+        String(p.manager || '').toLowerCase().includes(q) ||
+        String(p.phone || '').includes(q) ||
+        String(p.address || '').toLowerCase().includes(q);
       const matchesCategory =
-        categoryFilter === '전체' || p.category === categoryFilter || p.topReviewMenu === categoryFilter;
+        categoryFilter === '전체' ||
+        p.category === categoryFilter ||
+        p.topReviewMenu === categoryFilter;
       const matchesRegion =
         regionFilter === '전체' || String(p.address || '').startsWith(regionFilter);
       return matchesSearch && matchesCategory && matchesRegion;
@@ -862,7 +832,11 @@ export default function App() {
   }, [filteredPartners, currentPage, totalPages]);
 
   const kpiSummary = useMemo(() => {
-    const topItem = topIngredientsState.items[0] || { name: '서치 대기', count: 0, share: '0' };
+    const topItem = topIngredientsState.items[0] || {
+      name: '서치 대기',
+      count: 0,
+      share: '0',
+    };
     const allSpecies = Object.values(speciesData);
     const avgChange = (
       allSpecies.reduce((acc, s) => acc + s.prevDiffRate, 0) / allSpecies.length
@@ -922,7 +896,7 @@ export default function App() {
     showToast(
       top5StarMenu
         ? `[${buildRegionCompanyQuery(partner.companyName, partner.address)}] 5점 리뷰 1위 메뉴 '${top5StarMenu}' 반영 완료!`
-        : `[${buildRegionCompanyQuery(partner.companyName, partner.address)}] 검색 완료 (네이버 메뉴판 링크 연결됨)`
+        : `[${buildRegionCompanyQuery(partner.companyName, partner.address)}] 검색 완료`
     );
   };
 
@@ -960,52 +934,7 @@ export default function App() {
         rows = text
           .split(/\r?\n/)
           .filter((line) => line.trim() !== '')
-          .map((line) => {
-            const cells = [];
-            let cur = '';
-            let inQuotes = false;
-            for (let i = 0; i < line.length; i++) {
-              const ch = line[i];
-              if (ch === '"') {
-                inQuotes = !inQuotes;
-              } else if (ch === delimiter && !inQuotes) {
-                cells.push(cur.trim());
-                cur = '';
-              } else {
-                cur += ch;
-              }
-            }
-            cells.push(cur.trim());
-            return cells;
-          });
-      }
-
-      if (rows.length === 0) {
-        const cdnUrls = [
-          'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
-          'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js',
-        ];
-        if (!window.XLSX) {
-          for (const url of cdnUrls) {
-            try {
-              await new Promise((resolve, reject) => {
-                const script = document.createElement('script');
-                script.src = url;
-                script.async = true;
-                script.onload = resolve;
-                script.onerror = reject;
-                document.head.appendChild(script);
-              });
-              if (window.XLSX) break;
-            } catch (_) {}
-          }
-        }
-        if (window.XLSX) {
-          const buffer = await file.arrayBuffer();
-          const workbook = window.XLSX.read(new Uint8Array(buffer), { type: 'array' });
-          const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-          rows = window.XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
-        }
+          .map((line) => line.split(delimiter).map((c) => c.trim()));
       }
 
       const parsed = [];
@@ -1041,18 +970,7 @@ export default function App() {
       }
 
       rows.forEach((row, idx) => {
-        if (!Array.isArray(row) || row.length === 0) return;
-        if (idx <= headerRowIndex) return;
-
-        const firstCell = String(row[0] ?? '').trim();
-        if (
-          headerRowIndex === -1 &&
-          idx === 0 &&
-          (firstCell === '순서' || firstCell === '번호' || firstCell.toLowerCase() === 'no')
-        ) {
-          return;
-        }
-
+        if (!Array.isArray(row) || row.length === 0 || idx <= headerRowIndex) return;
         const companyName = String(row[colMap.name] ?? '').trim();
         const ceoName = String(row[colMap.ceo] ?? '').trim();
         const phone = String(row[colMap.phone] ?? '').trim();
@@ -1076,7 +994,7 @@ export default function App() {
       });
 
       if (parsed.length === 0) {
-        showToast('엑셀 파일에서 유효한 업체 행을 찾지 못했습니다. (A열: 순서, B열: 업체명 기준)');
+        showToast('엑셀 파일에서 유효한 업체 행을 찾지 못했습니다.');
         if (fileInputRef.current) fileInputRef.current.value = '';
         return;
       }
@@ -1084,15 +1002,13 @@ export default function App() {
       setExcelPreviewRows(parsed);
       if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (err) {
-      console.error('엑셀 처리 오류:', err);
-      showToast('엑셀 파일 분석 중 문제가 발생했습니다. 파일 암호 설정 여부를 확인해 주세요.');
+      showToast('엑셀 파일 분석 중 문제가 발생했습니다.');
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   const handleConfirmExcelImport = () => {
     if (excelPreviewRows.length === 0) return;
-
     const existingNames = new Set(
       partners.map((p) => String(p?.companyName || '').trim()).filter(Boolean)
     );
@@ -1126,9 +1042,7 @@ export default function App() {
     setExcelPreviewRows([]);
     setExcelFileName('');
     setActiveModal(null);
-    showToast(
-      `엑셀 거래업체 ${newItems.length}개사가 저장되었습니다! (중복 ${excelPreviewRows.length - newItems.length}건 제외)`
-    );
+    showToast(`엑셀 거래업체 ${newItems.length}개사가 저장되었습니다!`);
   };
 
   const applySnsFeedToPartner = (feedItem) => {
@@ -1152,36 +1066,38 @@ export default function App() {
               snsPlatform: 'Instagram',
               snsHandle: `#${tagKeyword}`,
               instagramUrl: instaUrl,
-              lastOrder: '2026-11-18 (SNS자동)',
+              lastOrder: '2026-11-20 (SNS자동)',
               status: '활발',
             }
           : p
       );
     } else {
-      const created = {
-        id: `P-${Date.now()}`,
-        companyName,
-        snsPlatform: 'Instagram',
-        snsHandle: `#${tagKeyword}`,
-        instagramUrl: instaUrl,
-        blogUrl: `https://search.naver.com/search.naver?where=blog&query=${encodeURIComponent(companyName)}`,
-        category: parsed.species,
-        mainProduct: parsed.spec,
-        searchedMenus: [parsed.spec],
-        aiSummary: '',
-        isSearched: false,
-        unitPrice: parsed.unitPrice,
-        unitLabel: parsed.unitLabel,
-        totalVolume: Number(parsed.volume),
-        volumeUnit: parsed.volumeUnit,
-        manager: 'SNS 자동등록',
-        ceoName: 'SNS 담당',
-        phone: '010-0000-0000',
-        address: 'SNS 연동 업체',
-        status: '활발',
-        lastOrder: '2026-11-18 (SNS자동)',
-      };
-      nextPartners = [created, ...partners];
+      nextPartners = [
+        {
+          id: `P-${Date.now()}`,
+          companyName,
+          snsPlatform: 'Instagram',
+          snsHandle: `#${tagKeyword}`,
+          instagramUrl: instaUrl,
+          blogUrl: `https://search.naver.com/search.naver?where=blog&query=${encodeURIComponent(companyName)}`,
+          category: parsed.species,
+          mainProduct: parsed.spec,
+          searchedMenus: [parsed.spec],
+          aiSummary: '',
+          isSearched: false,
+          unitPrice: parsed.unitPrice,
+          unitLabel: parsed.unitLabel,
+          totalVolume: Number(parsed.volume),
+          volumeUnit: parsed.volumeUnit,
+          manager: 'SNS 자동등록',
+          ceoName: 'SNS 담당',
+          phone: '010-0000-0000',
+          address: 'SNS 연동 업체',
+          status: '활발',
+          lastOrder: '2026-11-20 (SNS자동)',
+        },
+        ...partners,
+      ];
     }
 
     const nextFeeds = snsFeeds.map((f) =>
@@ -1191,8 +1107,7 @@ export default function App() {
     setPartners(nextPartners);
     setSnsFeeds(nextFeeds);
     persistDashboardState({ partners: nextPartners, snsFeeds: nextFeeds });
-
-    showToast(`[${companyName}] SNS 입고/단가 정보가 거래업체 목록에 반영되었습니다.`);
+    showToast(`[${companyName}] SNS 입고/단가 정보가 반영되었습니다.`);
   };
 
   const handleSyncAllPartnersSns = () => {
@@ -1226,7 +1141,7 @@ export default function App() {
       setSnsFeeds(nextFeeds);
       persistDashboardState({ snsFeeds: nextFeeds });
       setIsSyncingSns(false);
-      showToast('등록 거래처 SNS 최신 게시물 수집 및 AI 구조화가 완료되었습니다.');
+      showToast('등록 거래처 SNS 최신 게시물 수집이 완료되었습니다.');
     }, 650);
   };
 
@@ -1263,16 +1178,13 @@ export default function App() {
     if (!newPartnerForm.companyName || !newPartnerForm.mainProduct || !newPartnerForm.unitPrice) {
       return;
     }
-
     const tagKeyword = newPartnerForm.companyName.trim().replace(/\s+/g, '');
-    const instaUrl = `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`;
-
     const newItem = {
       id: `P-${Date.now()}`,
       companyName: newPartnerForm.companyName,
       snsPlatform: 'Instagram',
       snsHandle: `#${tagKeyword}`,
-      instagramUrl: instaUrl,
+      instagramUrl: `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`,
       blogUrl:
         newPartnerForm.blogUrl.trim() ||
         `https://search.naver.com/search.naver?where=blog&query=${encodeURIComponent(newPartnerForm.companyName)}`,
@@ -1290,29 +1202,12 @@ export default function App() {
       phone: newPartnerForm.phone || '010-0000-0000',
       address: newPartnerForm.address || '직접 등록 거래처',
       status: newPartnerForm.status,
-      lastOrder: '2026-11-18',
+      lastOrder: '2026-11-20',
     };
 
     const nextPartners = [newItem, ...partners];
     setPartners(nextPartners);
     persistDashboardState({ partners: nextPartners });
-
-    setNewPartnerForm({
-      companyName: '',
-      snsPlatform: 'Instagram',
-      snsHandle: '',
-      blogUrl: '',
-      category: '고등어',
-      mainProduct: '',
-      unitPrice: '',
-      unitLabel: '원/상자',
-      totalVolume: '',
-      volumeUnit: '상자',
-      manager: '',
-      phone: '',
-      address: '',
-      status: '활발',
-    });
     setActiveModal(null);
     showToast(`신규 거래업체 '${newItem.companyName}'이(가) 등록되었습니다.`);
   };
@@ -1333,17 +1228,30 @@ export default function App() {
       price: newPrice,
     };
 
-    const updatedMarkets = speciesData[targetSpecies].markets.map((m) =>
-      m.market === newAuctionForm.market
-        ? {
-            ...m,
+    const existingMarkets = speciesData[targetSpecies].markets || [];
+    const hasMarket = existingMarkets.some((m) => m.market === newAuctionForm.market);
+    const updatedMarkets = hasMarket
+      ? existingMarkets.map((m) =>
+          m.market === newAuctionForm.market
+            ? {
+                ...m,
+                price: newPrice,
+                diff: diffAmount,
+                volume: newAuctionForm.volume || m.volume,
+                status: newAuctionForm.status,
+              }
+            : m
+        )
+      : [
+          ...existingMarkets,
+          {
+            market: newAuctionForm.market,
             price: newPrice,
             diff: diffAmount,
-            volume: newAuctionForm.volume || m.volume,
+            volume: newAuctionForm.volume || '집계중',
             status: newAuctionForm.status,
-          }
-        : m
-    );
+          },
+        ];
 
     const nextSpeciesData = {
       ...speciesData,
@@ -1357,22 +1265,14 @@ export default function App() {
     };
     setSpeciesData(nextSpeciesData);
     persistDashboardState({ speciesData: nextSpeciesData });
-
     setSelectedSpecies(targetSpecies);
-    setNewAuctionForm({
-      species: '삼치',
-      market: '부산공동어시장',
-      price: '',
-      volume: '',
-      status: '강세',
-    });
     setActiveModal(null);
     showToast(`${targetSpecies} (${newAuctionForm.market}) 오늘의 위판 시세가 반영되었습니다.`);
   };
 
-  // 보안 게이트 화면
-  if (!isUnlocked || (isUnlocked && isChangingPin)) {
-    const isChangeMode = isUnlocked && isChangingPin;
+  // 보안 게이트 (마스터 PIN 입력 화면)
+  if (!isUnlocked || (isChangingPin && isUnlocked)) {
+    const isChangeMode = isChangingPin && isUnlocked;
     return (
       <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans text-slate-800">
         <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
@@ -1384,13 +1284,10 @@ export default function App() {
                 <Lock className="w-7 h-7 text-sky-200" />
               )}
             </div>
-            <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white/15 text-sky-100 border border-white/20 mb-2">
-              {APP_VERSION}
-            </div>
             <h1 className="text-xl font-bold tracking-tight">수산물 종합 유통·시세 대시보드</h1>
             <p className="text-xs text-sky-100 mt-1">
               {isChangeMode
-                ? '현재 마스터 PIN 확인 후 새 4자리 비밀번호로 변경합니다'
+                ? '현재 PIN 확인 후 새 마스터 비밀번호(PIN)로 변경합니다'
                 : '승인된 사용자만 접속 가능합니다 · 4자리 비밀번호(PIN)를 입력하세요'}
             </p>
           </div>
@@ -1399,14 +1296,14 @@ export default function App() {
             {!isDataLoaded ? (
               <div className="py-8 flex flex-col items-center justify-center text-slate-500 gap-2">
                 <Loader2 className="w-6 h-6 animate-spin text-sky-600" />
-                <span className="text-xs">클라우드 마스터 보안 정책 및 데이터 동기화 중...</span>
+                <span className="text-xs">클라우드 보안 정책 및 저장 데이터 불러오는 중...</span>
               </div>
             ) : (
               <>
                 {isChangeMode && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                      현재 4자리 비밀번호(PIN) 확인
+                      현재 4자리 비밀번호(PIN) 입력
                     </label>
                     <input
                       type="password"
@@ -1482,9 +1379,9 @@ export default function App() {
                     type="button"
                     onClick={() => {
                       setIsChangingPin(false);
-                      setCurrentPinForChange('');
                       setPinInput('');
                       setPinConfirmInput('');
+                      setCurrentPinForChange('');
                       setPinError('');
                     }}
                     className="w-full py-2 text-xs font-semibold text-slate-500 hover:text-slate-700 cursor-pointer"
@@ -1496,11 +1393,11 @@ export default function App() {
                 <div className="pt-3 border-t border-slate-100 text-[11px] text-slate-400 space-y-1">
                   <p className="flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                    새로운 기기·브라우저에서는 임의로 비밀번호를 새로 생성할 수 없습니다.
+                    새로운 기기·브라우저에서는 임의 비밀번호 생성이 차단됩니다.
                   </p>
                   <p className="flex items-center gap-1.5">
                     <CheckCircle2 className="w-3.5 h-3.5 text-sky-500 shrink-0" />
-                    클라우드 동기화 상태: {syncStatus}
+                    클라우드 상태: {syncStatus}
                   </p>
                 </div>
               </>
@@ -1527,25 +1424,21 @@ export default function App() {
               <Anchor className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
                 <h1 className="text-base sm:text-lg font-bold text-slate-900 tracking-tight">
                   수산물 종합 유통·시세 대시보드
                 </h1>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                  {APP_VERSION}
+                  v3.4 · 부산·남해 위판장 · 12시 자동갱신
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <span className="hidden sm:inline">
-                  거래업체 {partners.length}개사 통합 관리 · 위판장 시세 · Windy 해상 기상
+                  거래업체 {partners.length}개사 통합 관리 · 부산·남해 위판 시세 · Windy 해상 기상
                 </span>
                 <button
                   onClick={() => setActiveModal('cloud')}
-                  className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium cursor-pointer transition-colors ${
-                    supabaseConfig.url
-                      ? 'text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100'
-                      : 'text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100'
-                  }`}
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium cursor-pointer text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100"
                 >
                   <Cloud className="w-3 h-3" />
                   {syncStatus}
@@ -1557,32 +1450,28 @@ export default function App() {
           <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
             <button
               onClick={() => setActiveModal('cloud')}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold rounded-lg border transition-colors cursor-pointer ${
-                supabaseConfig.url || supabaseConfig.geminiKey
-                  ? 'text-sky-700 bg-sky-50 border-sky-200 hover:bg-sky-100'
-                  : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
-              }`}
+              className="inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold rounded-lg border text-sky-700 bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer"
             >
               <Database className="w-3.5 h-3.5 text-sky-600" />
               <span className="hidden md:inline">동기화 · AI키 설정</span>
             </button>
             <button
               onClick={() => setActiveModal('excel')}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg cursor-pointer"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">엑셀 업로드</span>
             </button>
             <button
               onClick={() => setActiveModal('auction')}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden md:inline">위판 시세</span>
             </button>
             <button
               onClick={() => setActiveModal('partner')}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">업체 등록</span>
@@ -1593,19 +1482,19 @@ export default function App() {
             <button
               onClick={() => {
                 setIsChangingPin(true);
-                setCurrentPinForChange('');
                 setPinInput('');
                 setPinConfirmInput('');
+                setCurrentPinForChange('');
                 setPinError('');
               }}
-              className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg cursor-pointer"
             >
               <KeyRound className="w-3.5 h-3.5" />
               <span className="hidden lg:inline">PIN 변경</span>
             </button>
             <button
               onClick={handleLockScreen}
-              className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg cursor-pointer"
             >
               <Lock className="w-3.5 h-3.5" />
               <span>잠금</span>
@@ -1615,19 +1504,18 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
-        {/* 1. Windy 실시간 해상 기상 섹션 */}
         <WeatherSection
+          weatherMap={INITIAL_WEATHER_DATA}
           selectedSea={selectedSea}
           setSelectedSea={setSelectedSea}
           windyOverlay={windyOverlay}
           setWindyOverlay={setWindyOverlay}
         />
 
-        {/* 2. 상단 KPI 요약 카드 4종 */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
             <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-slate-500">최다 사용 메인 원재료 1위</span>
+              <span className="text-xs font-semibold text-slate-500">최고 인기 메인재료</span>
               <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
                 <Package className="w-4 h-4" />
               </div>
@@ -1635,13 +1523,15 @@ export default function App() {
             <div className="flex items-baseline gap-2">
               <span className="text-2xl font-bold text-slate-900">{kpiSummary.topItem.name}</span>
               <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">
-                비중 {kpiSummary.topItem.share}%
+                {kpiSummary.topItem.count > 0
+                  ? `${kpiSummary.topItem.count}개사 (${kpiSummary.topItem.share}%)`
+                  : '미실행'}
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1.5">
               {topIngredientsState.updatedAt
                 ? `최근 갱신: ${topIngredientsState.updatedAt}`
-                : '하단 [TOP 5 메인재료 서치] 클릭 시 산출'}
+                : '하단 TOP 5 섹션에서 서치 실행 시 갱신'}
             </p>
           </div>
 
@@ -1660,7 +1550,9 @@ export default function App() {
               </span>
               <span className="text-xs font-medium text-slate-500">전일 위판가 대비</span>
             </div>
-            <p className="text-xs text-slate-500 mt-1.5">삼치(+6.2%) · 금태(+4.5%) 강세 지속</p>
+            <p className="text-xs text-slate-500 mt-1.5">
+              부산·남해 위판장 매일 12:00 자동 갱신
+            </p>
           </div>
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
@@ -1702,7 +1594,6 @@ export default function App() {
           </div>
         </section>
 
-        {/* 3. 위판장 판매 어종 및 가격 추이 섹션 */}
         <AuctionSection
           speciesData={speciesData}
           selectedSpecies={selectedSpecies}
@@ -1714,13 +1605,16 @@ export default function App() {
           isSearchingSpecies={isSearchingSpecies}
           onSearchAndAddSpecies={handleSearchAndAddSpecies}
           onResetSpeciesToDefault={handleResetSpeciesToDefault}
+          auctionUpdatedAt={auctionUpdatedAt}
+          isRefreshingAuction={isRefreshingAuction}
+          onRefreshAuctionNow={() => refreshAllSpeciesAuction(false)}
+          onUpdateSpeciesMarkets={handleUpdateSpeciesMarkets}
         />
 
-        {/* 4. 등록 거래업체 SNS 자동 수집 및 AI 단가·입고 정리 섹션 */}
         <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
             <div>
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
                 <span className="w-7 h-7 rounded-lg bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600 text-white flex items-center justify-center shadow-2xs">
                   <Instagram className="w-4 h-4" />
                 </span>
@@ -1791,7 +1685,7 @@ export default function App() {
                       ) : (
                         <button
                           onClick={() => applySnsFeedToPartner(feed)}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-sky-600 hover:bg-sky-700 px-2.5 py-1 rounded-full cursor-pointer transition-colors"
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-sky-600 hover:bg-sky-700 px-2.5 py-1 rounded-full cursor-pointer"
                         >
                           거래처 정보에 즉시 반영
                         </button>
@@ -1863,7 +1757,7 @@ export default function App() {
                   </label>
                   <textarea
                     rows={4}
-                    placeholder="예: 오늘 새벽 통영항 입항! 선망 고등어 특대 10kg 1상자 39,000원 총 250상자 선별 완료했습니다. 당일 화물 출고 가능!"
+                    placeholder="예: 오늘 새벽 통영항 입항! 선망 고등어 특대 10kg 1상자 39,000원 총 250상자 선별 완료했습니다."
                     value={snsInputText}
                     onChange={(e) => setSnsInputText(e.target.value)}
                     className="w-full p-2.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
@@ -1872,32 +1766,26 @@ export default function App() {
 
                 <button
                   type="submit"
-                  className="w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-xs transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                  className="w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
                   AI 자동 추출 및 거래처 상품 반영
                 </button>
               </form>
-
-              <div className="mt-4 pt-3 border-t border-slate-200/80 text-[11px] text-slate-500">
-                * 인스타 미등록 업체도 게시글 원문을 입력하면 판매 품목과 단가가 자동 정리됩니다.
-              </div>
             </div>
           </div>
         </section>
 
-        {/* 5. 전체 등록 거래처 인기 메인재료 TOP 5 & 거래처 관리 섹션 */}
         <section className="space-y-6">
           <TopIngredientsSection
+            partnersCount={partners.length}
             topIngredientsState={topIngredientsState}
             isSearchingTopIngredients={isSearchingTopIngredients}
-            ingredientSearchProgress={ingredientSearchProgress}
-            partnersCount={partners.length}
-            onOpenConfirmModal={() => setActiveModal('confirmTopIngredients')}
-            onCancelSearch={() => {
-              cancelIngredientSearchRef.current = true;
+            searchProgress={searchProgress}
+            onRequestSearchConfirm={() => setActiveModal('confirmTopSearch')}
+            onAbortSearch={() => {
+              abortSearchRef.current = true;
             }}
-            onOpenCloudModal={() => setActiveModal('cloud')}
           />
 
           <PartnerTableSection
@@ -1908,10 +1796,10 @@ export default function App() {
             setSearchQuery={setSearchQuery}
             regionFilter={regionFilter}
             setRegionFilter={setRegionFilter}
+            availableRegions={availableRegions}
             categoryFilter={categoryFilter}
             setCategoryFilter={setCategoryFilter}
-            availableRegions={availableRegions}
-            speciesData={speciesData}
+            speciesKeys={Object.keys(speciesData)}
             currentPage={currentPage}
             setCurrentPage={setCurrentPage}
             totalPages={totalPages}
@@ -1922,8 +1810,8 @@ export default function App() {
             setSelectedPartnerDetail={setSelectedPartnerDetail}
             onClearAllPartners={handleClearAllPartners}
             onBatchSearchCurrentPage={handleBatchSearchCurrentPage}
-            onOpenExcelModal={() => setActiveModal('excel')}
             onSearchSinglePartnerMenu={handleSearchSinglePartnerMenu}
+            onOpenExcelModal={() => setActiveModal('excel')}
           />
         </section>
       </main>
@@ -1932,26 +1820,27 @@ export default function App() {
         activeModal={activeModal}
         setActiveModal={setActiveModal}
         partnersCount={partners.length}
-        supabaseConfig={supabaseConfig}
+        geminiKey={supabaseConfig.geminiKey}
+        onConfirmTopSearch={handleStartTopIngredientsSearch}
         supabaseForm={supabaseForm}
         setSupabaseForm={setSupabaseForm}
-        diagResults={diagResults}
-        isRunningDiag={isRunningDiag}
-        onRunConnectionDiagnostics={handleRunConnectionDiagnostics}
         onSaveSupabaseConfig={handleSaveSupabaseConfig}
+        onRunConnectionDiagnostics={handleRunConnectionDiagnostics}
+        isRunningDiag={isRunningDiag}
+        diagResults={diagResults}
         onClearAllPartners={handleClearAllPartners}
-        onRunTopIngredientsSearch={handleRunTopIngredientsSearch}
         fileInputRef={fileInputRef}
+        onExcelFileChange={handleExcelFileChange}
         excelFileName={excelFileName}
+        setExcelFileName={setExcelFileName}
         excelPreviewRows={excelPreviewRows}
         setExcelPreviewRows={setExcelPreviewRows}
-        setExcelFileName={setExcelFileName}
-        onExcelFileChange={handleExcelFileChange}
         onConfirmExcelImport={handleConfirmExcelImport}
-        speciesData={speciesData}
         newPartnerForm={newPartnerForm}
         setNewPartnerForm={setNewPartnerForm}
         onAddPartner={handleAddPartner}
+        speciesKeys={Object.keys(speciesData)}
+        speciesData={speciesData}
         newAuctionForm={newAuctionForm}
         setNewAuctionForm={setNewAuctionForm}
         onAddAuction={handleAddAuction}

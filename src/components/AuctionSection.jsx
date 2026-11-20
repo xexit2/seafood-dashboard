@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   BarChart3,
   RotateCcw,
@@ -8,6 +8,9 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   AlertTriangle,
+  RefreshCw,
+  Check,
+  X,
 } from './Icons';
 
 const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
@@ -23,11 +26,78 @@ export default function AuctionSection({
   isSearchingSpecies,
   onSearchAndAddSpecies,
   onResetSpeciesToDefault,
+  auctionUpdatedAt,
+  isRefreshingAuction,
+  onRefreshAuctionNow,
+  onUpdateSpeciesMarkets,
 }) {
   const currentSpecies =
     speciesData[selectedSpecies] || Object.values(speciesData)[0];
   const chartData =
     chartPeriod === '7d' ? currentSpecies.history7d : currentSpecies.history30d;
+
+  // 위판장 목록 인라인 편집 상태
+  const [isEditingMarkets, setIsEditingMarkets] = useState(false);
+  const [draftMarkets, setDraftMarkets] = useState([]);
+  const [newMarketName, setNewMarketName] = useState('');
+
+  const handleStartEditMarkets = () => {
+    setDraftMarkets(
+      (currentSpecies.markets || []).map((m) => ({ ...m }))
+    );
+    setNewMarketName('');
+    setIsEditingMarkets(true);
+  };
+
+  const handleDraftFieldChange = (idx, field, value) => {
+    setDraftMarkets((prev) =>
+      prev.map((item, i) =>
+        i === idx
+          ? {
+              ...item,
+              [field]:
+                field === 'price' || field === 'diff'
+                  ? Number(value) || 0
+                  : value,
+            }
+          : item
+      )
+    );
+  };
+
+  const handleAddDraftMarket = () => {
+    const trimmed = newMarketName.trim();
+    if (!trimmed) return;
+    if (draftMarkets.some((m) => m.market === trimmed)) {
+      setNewMarketName('');
+      return;
+    }
+    setDraftMarkets((prev) => [
+      ...prev,
+      {
+        market: trimmed,
+        price: Number(currentSpecies.currentAvg) || 35000,
+        diff: 0,
+        volume: '집계중',
+        status: '보합',
+      },
+    ]);
+    setNewMarketName('');
+  };
+
+  const handleRemoveDraftMarket = (idx) => {
+    if (draftMarkets.length <= 1) return;
+    setDraftMarkets((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleSaveMarkets = () => {
+    const valid = draftMarkets.filter((m) => String(m.market || '').trim() !== '');
+    if (valid.length === 0) return;
+    if (onUpdateSpeciesMarkets) {
+      onUpdateSpeciesMarkets(selectedSpecies, valid);
+    }
+    setIsEditingMarkets(false);
+  };
 
   return (
     <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
@@ -38,17 +108,33 @@ export default function AuctionSection({
             <h2 className="text-lg font-bold text-slate-900">
               위판장 판매 어종 및 가격 추이
             </h2>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
+              매일 12:00 자동갱신{auctionUpdatedAt ? ` · 최근 ${auctionUpdatedAt}` : ''}
+            </span>
             <button
+              type="button"
+              onClick={onRefreshAuctionNow}
+              disabled={isRefreshingAuction}
+              className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold text-white bg-sky-600 hover:bg-sky-700 disabled:opacity-50 transition-colors cursor-pointer"
+              title="지금 즉시 전 어종의 부산·남해 위판장 시세를 실시간 갱신합니다"
+            >
+              <RefreshCw
+                className={`w-3 h-3 ${isRefreshingAuction ? 'animate-spin' : ''}`}
+              />
+              {isRefreshingAuction ? '시세 갱신중...' : '시세 실시간 갱신'}
+            </button>
+            <button
+              type="button"
               onClick={onResetSpeciesToDefault}
               className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-slate-500 hover:text-sky-700 bg-slate-100 hover:bg-sky-50 border border-slate-200 transition-colors cursor-pointer"
-              title="기본 4종(삼치·금태·고등어·전갱이)으로 초기화"
+              title="부산·남해 위판장 기준 기본 4종(삼치·금태·고등어·전갱이)으로 초기화"
             >
               <RotateCcw className="w-3 h-3" />
               기본 4종 초기화
             </button>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            기본 어종(삼치·금태·고등어·전갱이) 외 원하는 어종을 검색해 시세 추이를 추가할 수 있습니다.
+            부산 인근·남해 위판장(부산공동어시장·통영·여수·삼천포 등) 시세를 매일 낮 12시에 자동 갱신하며, 우측 위판장 목록도 직접 편집할 수 있습니다.
           </p>
         </div>
 
@@ -85,7 +171,10 @@ export default function AuctionSection({
               return (
                 <button
                   key={sp}
-                  onClick={() => setSelectedSpecies(sp)}
+                  onClick={() => {
+                    setSelectedSpecies(sp);
+                    setIsEditingMarkets(false);
+                  }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
                     isSelected
                       ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
@@ -112,7 +201,7 @@ export default function AuctionSection({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-6">
-        <div className="lg:col-span-7 flex flex-col justify-between bg-slate-50/70 rounded-xl p-4 border border-slate-100">
+        <div className="lg:col-span-6 flex flex-col justify-between bg-slate-50/70 rounded-xl p-4 border border-slate-100">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <div>
               <div className="flex items-center gap-2">
@@ -299,69 +388,182 @@ export default function AuctionSection({
           </div>
         </div>
 
-        <div className="lg:col-span-5 flex flex-col justify-between">
+        <div className="lg:col-span-6 flex flex-col justify-between">
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-slate-800">
-                주요 위판장별 당일 낙찰 시세
-              </h3>
-              <span className="text-xs text-slate-400">단위: {currentSpecies.unit}</span>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800">
+                  부산 인근 · 남해 위판장별 당일 낙찰 시세
+                </h3>
+                <span className="text-[11px] text-slate-400">
+                  단위: {currentSpecies.unit}
+                </span>
+              </div>
+
+              {!isEditingMarkets ? (
+                <button
+                  type="button"
+                  onClick={handleStartEditMarkets}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-sky-700 bg-sky-50 hover:bg-sky-100 border border-sky-200 transition-colors cursor-pointer"
+                >
+                  위판장 목록·시세 수정
+                </button>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingMarkets(false)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                    취소
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveMarkets}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
+                  >
+                    <Check className="w-3.5 h-3.5" />
+                    저장 반영
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="overflow-hidden rounded-xl border border-slate-200">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
-                    <th className="py-2.5 px-3.5">위판장명</th>
-                    <th className="py-2.5 px-3 text-right">당일 시세</th>
-                    <th className="py-2.5 px-3 text-right">전일 대비</th>
-                    <th className="py-2.5 px-3.5 text-center">동향</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-xs">
-                  {currentSpecies.markets.map((m, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-3.5">
-                        <div className="font-semibold text-slate-800">{m.market}</div>
-                        <div className="text-[11px] text-slate-400">물량 {m.volume}</div>
-                      </td>
-                      <td className="py-3 px-3 text-right font-bold text-slate-900">
-                        {formatNumber(m.price)}원
-                      </td>
-                      <td
-                        className={`py-3 px-3 text-right font-semibold ${
-                          m.diff >= 0 ? 'text-rose-600' : 'text-blue-600'
-                        }`}
-                      >
-                        {m.diff >= 0 ? `+${formatNumber(m.diff)}` : formatNumber(m.diff)}
-                      </td>
-                      <td className="py-3 px-3.5 text-center">
-                        <span
-                          className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                            m.status === '급등' || m.status === '강세'
-                              ? 'bg-rose-50 text-rose-700'
-                              : m.status === '상승'
-                              ? 'bg-amber-50 text-amber-700'
-                              : m.status === '보합'
-                              ? 'bg-slate-100 text-slate-600'
-                              : 'bg-blue-50 text-blue-700'
+            {!isEditingMarkets ? (
+              <div className="overflow-hidden rounded-xl border border-slate-200">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
+                      <th className="py-2.5 px-3.5">위판장명</th>
+                      <th className="py-2.5 px-3 text-right">당일 시세</th>
+                      <th className="py-2.5 px-3 text-right">전일 대비</th>
+                      <th className="py-2.5 px-3.5 text-center">동향</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 text-xs">
+                    {currentSpecies.markets.map((m, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-3.5">
+                          <div className="font-semibold text-slate-800">{m.market}</div>
+                          <div className="text-[11px] text-slate-400">물량 {m.volume}</div>
+                        </td>
+                        <td className="py-3 px-3 text-right font-bold text-slate-900">
+                          {formatNumber(m.price)}원
+                        </td>
+                        <td
+                          className={`py-3 px-3 text-right font-semibold ${
+                            m.diff >= 0 ? 'text-rose-600' : 'text-blue-600'
                           }`}
                         >
-                          {m.status}
-                        </span>
-                      </td>
-                    </tr>
+                          {m.diff >= 0 ? `+${formatNumber(m.diff)}` : formatNumber(m.diff)}
+                        </td>
+                        <td className="py-3 px-3.5 text-center">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                              m.status === '급등' || m.status === '강세'
+                                ? 'bg-rose-50 text-rose-700'
+                                : m.status === '상승'
+                                ? 'bg-amber-50 text-amber-700'
+                                : m.status === '보합'
+                                ? 'bg-slate-100 text-slate-600'
+                                : 'bg-blue-50 text-blue-700'
+                            }`}
+                          >
+                            {m.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="space-y-2.5 p-3 rounded-xl bg-slate-50 border border-sky-200">
+                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                  {draftMarkets.map((m, idx) => (
+                    <div
+                      key={idx}
+                      className="grid grid-cols-12 gap-1.5 items-center bg-white p-2 rounded-lg border border-slate-200 text-xs"
+                    >
+                      <input
+                        type="text"
+                        value={m.market}
+                        onChange={(e) =>
+                          handleDraftFieldChange(idx, 'market', e.target.value)
+                        }
+                        placeholder="위판장명"
+                        className="col-span-4 px-2 py-1 border border-slate-200 rounded font-semibold text-slate-800"
+                      />
+                      <input
+                        type="number"
+                        value={m.price}
+                        onChange={(e) =>
+                          handleDraftFieldChange(idx, 'price', e.target.value)
+                        }
+                        placeholder="시세(원)"
+                        className="col-span-3 px-2 py-1 border border-slate-200 rounded text-right font-bold"
+                      />
+                      <input
+                        type="text"
+                        value={m.volume}
+                        onChange={(e) =>
+                          handleDraftFieldChange(idx, 'volume', e.target.value)
+                        }
+                        placeholder="물량"
+                        className="col-span-2 px-2 py-1 border border-slate-200 rounded text-center text-[11px]"
+                      />
+                      <select
+                        value={m.status}
+                        onChange={(e) =>
+                          handleDraftFieldChange(idx, 'status', e.target.value)
+                        }
+                        className="col-span-2 px-1 py-1 border border-slate-200 rounded text-[11px]"
+                      >
+                        <option value="급등">급등</option>
+                        <option value="강세">강세</option>
+                        <option value="상승">상승</option>
+                        <option value="보합">보합</option>
+                        <option value="약세">약세</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveDraftMarket(idx)}
+                        disabled={draftMarkets.length <= 1}
+                        title="위판장 삭제"
+                        className="col-span-1 flex justify-center text-rose-500 hover:text-rose-700 disabled:opacity-30 cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            </div>
+                </div>
+
+                <div className="flex items-center gap-1.5 pt-1 border-t border-slate-200">
+                  <input
+                    type="text"
+                    value={newMarketName}
+                    onChange={(e) => setNewMarketName(e.target.value)}
+                    placeholder="새 위판장 추가 (예: 거제수협, 기장수협, 남해군수협)"
+                    className="flex-1 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddDraftMarket}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg cursor-pointer shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    위판장 추가
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mt-4 p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/70 flex items-start gap-2.5">
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <p className="text-xs text-amber-900 leading-relaxed">
-              <strong>매입 참고:</strong> 상단 <strong>[위판 시세]</strong> 버튼을 누르면
-              새로 추가한 어종의 당일 낙찰가와 물량도 직접 업데이트할 수 있습니다.
+              <strong>갱신 안내:</strong> 매일 <strong>낮 12:00(정오)</strong>에 부산·남해권 위판장 시세가 자동 갱신되며, <strong>[시세 실시간 갱신]</strong> 버튼으로 언제든 최신 시세를 불러올 수 있습니다.
             </p>
           </div>
         </div>
