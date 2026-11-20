@@ -14,15 +14,10 @@ import {
   TrendingUp,
   Building2,
   Fish,
-  Instagram,
-  Radio,
-  RefreshCw,
-  Sparkles,
-  Check,
-  MessageSquareText,
 } from './components/Icons';
 import WeatherSection from './components/WeatherSection';
 import AuctionSection from './components/AuctionSection';
+import PurchaseInsightSection from './components/PurchaseInsightSection';
 import TopIngredientsSection from './components/TopIngredientsSection';
 import PartnerTableSection from './components/PartnerTableSection';
 import Modals from './components/Modals';
@@ -35,15 +30,12 @@ import {
   INITIAL_WEATHER_DATA,
   INITIAL_SPECIES_DATA,
   INITIAL_PARTNERS,
-  INITIAL_SNS_FEEDS,
   isLegacySpeciesMap,
 } from './constants/initialData';
 import {
   parseXlsxNatively,
   buildRegionCompanyQuery,
-  openInstagramSearchInApp,
   inferPartnerMetadata,
-  parseSnsPostText,
 } from './utils/excelParser';
 import {
   searchPartnerWebAndMenus,
@@ -119,11 +111,6 @@ export default function App() {
   const [isBatchSearching, setIsBatchSearching] = useState(false);
   const [selectedPartnerDetail, setSelectedPartnerDetail] = useState(null);
 
-  const [snsFeeds, setSnsFeeds] = useState(INITIAL_SNS_FEEDS);
-  const [isSyncingSns, setIsSyncingSns] = useState(false);
-  const [snsInputCompany, setSnsInputCompany] = useState('');
-  const [snsInputText, setSnsInputText] = useState('');
-
   const [topIngredientsState, setTopIngredientsState] = useState({
     items: [],
     updatedAt: '',
@@ -166,7 +153,6 @@ export default function App() {
     status: '강세',
   });
 
-  // 절대 null/undefined가 되지 않도록 보장하는 안전 객체
   const safeSpeciesData = useMemo(() => {
     if (
       speciesData &&
@@ -191,7 +177,6 @@ export default function App() {
       const localPin = localStorage.getItem(`${APP_ID}_pin`);
       const localPartners = localStorage.getItem(`${APP_ID}_partners`);
       const localSpecies = localStorage.getItem(`${APP_ID}_species`);
-      const localFeeds = localStorage.getItem(`${APP_ID}_feeds`);
       const localTopIng = localStorage.getItem(`${APP_ID}_top_ingredients`);
       const localAuctionMeta = localStorage.getItem(`${APP_ID}_auction_meta`);
       const localSb = localStorage.getItem(`${APP_ID}_supabase`);
@@ -220,9 +205,6 @@ export default function App() {
         const parsedPartners = JSON.parse(localPartners);
         if (Array.isArray(parsedPartners)) {
           setPartners(parsedPartners);
-          if (parsedPartners.length > 0) {
-            setSnsInputCompany(parsedPartners[0].companyName);
-          }
         }
       }
       if (localSpecies) {
@@ -233,10 +215,6 @@ export default function App() {
             setSelectedSpecies(Object.keys(parsedSp)[0] || '삼치');
           }
         }
-      }
-      if (localFeeds) {
-        const parsedFeeds = JSON.parse(localFeeds);
-        if (Array.isArray(parsedFeeds)) setSnsFeeds(parsedFeeds);
       }
       if (localTopIng) {
         const parsedTop = JSON.parse(localTopIng);
@@ -338,10 +316,6 @@ export default function App() {
             publicDataKey: remote.publicDataKey || prev.publicDataKey,
           }));
         }
-        if (Array.isArray(remote.snsFeeds)) {
-          setSnsFeeds(remote.snsFeeds);
-          localStorage.setItem(`${APP_ID}_feeds`, JSON.stringify(remote.snsFeeds));
-        }
       }
       setSyncStatus('PC·모바일 실시간 동기화됨');
     } catch (err) {
@@ -355,7 +329,6 @@ export default function App() {
     const nextPartners = overrides.partners !== undefined ? overrides.partners : partners;
     const nextSpecies =
       overrides.speciesData !== undefined ? overrides.speciesData : safeSpeciesData;
-    const nextFeeds = overrides.snsFeeds !== undefined ? overrides.snsFeeds : snsFeeds;
     const nextTopIng =
       overrides.topIngredients !== undefined ? overrides.topIngredients : topIngredientsState;
     const nextAuctionUpdatedAt =
@@ -368,7 +341,6 @@ export default function App() {
       if (nextPin) localStorage.setItem(`${APP_ID}_pin`, nextPin);
       localStorage.setItem(`${APP_ID}_partners`, JSON.stringify(nextPartners));
       localStorage.setItem(`${APP_ID}_species`, JSON.stringify(nextSpecies));
-      localStorage.setItem(`${APP_ID}_feeds`, JSON.stringify(nextFeeds));
       localStorage.setItem(`${APP_ID}_top_ingredients`, JSON.stringify(nextTopIng));
       localStorage.setItem(
         `${APP_ID}_auction_meta`,
@@ -406,7 +378,6 @@ export default function App() {
               pin: nextPin,
               partners: nextPartners,
               speciesData: nextSpecies,
-              snsFeeds: nextFeeds,
               topIngredients: nextTopIng,
               auctionUpdatedAt: nextAuctionUpdatedAt,
               lastNoonSyncDate: nextLastNoonSyncDate,
@@ -424,7 +395,7 @@ export default function App() {
     }
   };
 
-  // 전 어종 시세를 단 1회 AI 호출로 일괄 갱신 (12:00 자동 갱신 및 실시간 수동 갱신 공용)
+  // 전 어종 시세를 일괄 갱신 (1순위: 공공데이터 공식 API / 2순위: Gemini AI 보조 폴백)
   const refreshAllSpeciesAuction = async (isAutoNoon = false) => {
     if (isRefreshingAuction) return;
     setIsRefreshingAuction(true);
@@ -549,7 +520,6 @@ export default function App() {
       sbHeaders.Authorization = `Bearer ${cleanSbKey}`;
     }
 
-    // 1. Supabase 읽기 진단
     try {
       const res = await fetch(
         `${cleanUrl}/rest/v1/seafood_state?id=eq.main&select=id,updated_at`,
@@ -563,7 +533,6 @@ export default function App() {
       results.sbRead = { ok: false, detail: e.message };
     }
 
-    // 2. Supabase 쓰기 진단 (savedPin, partners 등 현재 상태 변수 사용)
     try {
       const res = await fetch(`${cleanUrl}/rest/v1/seafood_state?on_conflict=id`, {
         method: 'POST',
@@ -579,7 +548,6 @@ export default function App() {
             pin: savedPin,
             partners,
             speciesData: safeSpeciesData,
-            snsFeeds,
             topIngredients: topIngredientsState,
             auctionUpdatedAt,
             lastNoonSyncDate,
@@ -597,7 +565,6 @@ export default function App() {
       results.sbWrite = { ok: false, detail: e.message };
     }
 
-    // 3. Gemini AI 키 진단
     if (!cleanGeminiKey) {
       results.gemini = { ok: false, detail: 'Gemini API 키가 비어 있습니다.' };
     } else {
@@ -615,7 +582,6 @@ export default function App() {
       }
     }
 
-    // 4. 공공데이터 위판 시세 API 진단
     if (!cleanPublicKey) {
       results.publicData = { ok: false, detail: '공공데이터 인증키가 비어 있습니다 (선택 입력).' };
     } else {
@@ -654,7 +620,7 @@ export default function App() {
     localStorage.setItem(`${APP_ID}_supabase`, JSON.stringify(trimmed));
     setActiveModal(null);
     await persistDashboardState({ supabaseConfig: trimmed });
-    showToast('클라우드 DB 및 AI API 설정이 저장되었습니다!');
+    showToast('클라우드 DB 및 API 설정이 저장되었습니다!');
   };
 
   const handleResetSpeciesToDefault = async () => {
@@ -711,10 +677,9 @@ export default function App() {
 
   const handleClearAllPartners = async () => {
     setPartners([]);
-    setSnsFeeds([]);
     setSelectedPartnerDetail(null);
     setCurrentPage(1);
-    await persistDashboardState({ partners: [], snsFeeds: [] });
+    await persistDashboardState({ partners: [] });
     showToast('등록된 거래업체 목록이 모두 비워졌습니다.');
   };
 
@@ -760,7 +725,7 @@ export default function App() {
     }
   };
 
-const unsearchedTopPartnersCount = useMemo(
+  const unsearchedTopPartnersCount = useMemo(
     () => partners.filter((p) => !p.topIngredientSearched).length,
     [partners]
   );
@@ -784,7 +749,6 @@ const unsearchedTopPartnersCount = useMemo(
     const total = targetsToSearch.length;
     setSearchProgress({ done: 0, total });
 
-    // 이번 서치로 새로 확인된 업체별 원재료 맵: { [partnerId]: ['삼치', '고등어'] }
     const newlyFoundMap = {};
     let lastError = '';
     let hitRateLimit = false;
@@ -821,7 +785,6 @@ const unsearchedTopPartnersCount = useMemo(
       }
     }
 
-    // 기존 partners 상태에 이번 서치 결과를 누적 반영
     const nextPartners = partners.map((p) => {
       if (Object.prototype.hasOwnProperty.call(newlyFoundMap, p.id)) {
         return {
@@ -836,7 +799,6 @@ const unsearchedTopPartnersCount = useMemo(
       return p;
     });
 
-    // 전체 partners(기존 누적 + 신규 확인) 기준으로 TOP 5 재집계
     const ingredientPartnersMap = {};
     let analyzedCount = 0;
     let omittedCount = 0;
@@ -899,7 +861,9 @@ const unsearchedTopPartnersCount = useMemo(
     } else if (abortSearchRef.current) {
       showToast(`서치가 중지되었습니다. (누적 확인 ${analyzedCount}개사 결과 반영)`);
     } else if (total === 0 && !isFullRescan) {
-      showToast(`신규 미서치 업체가 없어 기존 저장 데이터(${analyzedCount}개사) 기준으로 TOP 5를 재정리했습니다.`);
+      showToast(
+        `신규 미서치 업체가 없어 기존 저장 데이터(${analyzedCount}개사) 기준으로 TOP 5를 재정리했습니다.`
+      );
     } else if (top5Items.length === 0) {
       showToast(
         lastError || '확인된 메인 원재료가 없습니다. 상단 [동기화 · AI키 설정]을 확인해 주세요.'
@@ -1156,9 +1120,6 @@ const unsearchedTopPartnersCount = useMemo(
 
     const nextPartners = [...newItems, ...partners];
     setPartners(nextPartners);
-    if (nextPartners.length > 0 && !snsInputCompany) {
-      setSnsInputCompany(nextPartners[0].companyName);
-    }
     persistDashboardState({ partners: nextPartners });
 
     setCurrentPage(1);
@@ -1166,134 +1127,6 @@ const unsearchedTopPartnersCount = useMemo(
     setExcelFileName('');
     setActiveModal(null);
     showToast(`엑셀 거래업체 ${newItems.length}개사가 저장되었습니다!`);
-  };
-
-  const applySnsFeedToPartner = (feedItem) => {
-    const { companyName, parsed } = feedItem;
-    const tagKeyword = companyName.trim().replace(/\s+/g, '');
-    const instaUrl = `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`;
-
-    let nextPartners = [];
-    const exists = partners.some((p) => p.companyName === companyName);
-    if (exists) {
-      nextPartners = partners.map((p) =>
-        p.companyName === companyName
-          ? {
-              ...p,
-              category: parsed.species,
-              mainProduct: parsed.spec,
-              unitPrice: parsed.unitPrice,
-              unitLabel: parsed.unitLabel,
-              totalVolume: Number(p.totalVolume) + Number(parsed.volume),
-              volumeUnit: parsed.volumeUnit,
-              snsPlatform: 'Instagram',
-              snsHandle: `#${tagKeyword}`,
-              instagramUrl: instaUrl,
-              lastOrder: '2026-11-20 (SNS자동)',
-              status: '활발',
-            }
-          : p
-      );
-    } else {
-      nextPartners = [
-        {
-          id: `P-${Date.now()}`,
-          companyName,
-          snsPlatform: 'Instagram',
-          snsHandle: `#${tagKeyword}`,
-          instagramUrl: instaUrl,
-          blogUrl: `https://search.naver.com/search.naver?where=blog&query=${encodeURIComponent(companyName)}`,
-          category: parsed.species,
-          mainProduct: parsed.spec,
-          searchedMenus: [parsed.spec],
-          aiSummary: '',
-          isSearched: false,
-          unitPrice: parsed.unitPrice,
-          unitLabel: parsed.unitLabel,
-          totalVolume: Number(parsed.volume),
-          volumeUnit: parsed.volumeUnit,
-          manager: 'SNS 자동등록',
-          ceoName: 'SNS 담당',
-          phone: '010-0000-0000',
-          address: 'SNS 연동 업체',
-          status: '활발',
-          lastOrder: '2026-11-20 (SNS자동)',
-        },
-        ...partners,
-      ];
-    }
-
-    const nextFeeds = snsFeeds.map((f) =>
-      f.id === feedItem.id ? { ...f, syncedToPartner: true } : f
-    );
-
-    setPartners(nextPartners);
-    setSnsFeeds(nextFeeds);
-    persistDashboardState({ partners: nextPartners, snsFeeds: nextFeeds });
-    showToast(`[${companyName}] SNS 입고/단가 정보가 반영되었습니다.`);
-  };
-
-  const handleSyncAllPartnersSns = () => {
-    if (partners.length === 0) {
-      showToast('먼저 엑셀 파일을 업로드하여 거래업체를 등록해 주세요.');
-      return;
-    }
-    setIsSyncingSns(true);
-    setTimeout(() => {
-      const target = partners[0];
-      const tagKeyword = target.companyName.trim().replace(/\s+/g, '');
-      const simulatedPost = {
-        id: `SNS-${Date.now()}`,
-        companyName: target.companyName,
-        snsPlatform: 'Instagram',
-        snsHandle: `#${tagKeyword}`,
-        postedAt: '방금 전',
-        rawText: `${target.companyName} 산지 직송 특선 삼치(3kg급) 20상자 입항 완료! 상자당 64,500원 거래처 선착순 배정합니다.`,
-        parsed: {
-          species: '삼치',
-          spec: '산지 직송 특선 삼치 (3kg급)',
-          unitPrice: 64500,
-          unitLabel: '원/상자',
-          volume: 20,
-          volumeUnit: '상자',
-          available: true,
-        },
-        syncedToPartner: false,
-      };
-      const nextFeeds = [simulatedPost, ...snsFeeds];
-      setSnsFeeds(nextFeeds);
-      persistDashboardState({ snsFeeds: nextFeeds });
-      setIsSyncingSns(false);
-      showToast('등록 거래처 SNS 최신 게시물 수집이 완료되었습니다.');
-    }, 650);
-  };
-
-  const handleExtractCustomSnsPost = (e) => {
-    e.preventDefault();
-    if (!snsInputText.trim()) return;
-    const targetCompany = snsInputCompany || (partners[0] && partners[0].companyName);
-    if (!targetCompany) {
-      showToast('먼저 엑셀 파일을 업로드하여 거래업체를 등록해 주세요.');
-      return;
-    }
-
-    const tagKeyword = targetCompany.trim().replace(/\s+/g, '');
-    const parsed = parseSnsPostText(snsInputText);
-    const newFeed = {
-      id: `SNS-${Date.now()}`,
-      companyName: targetCompany,
-      snsPlatform: 'Instagram',
-      snsHandle: `#${tagKeyword}`,
-      postedAt: '방금 전',
-      rawText: snsInputText.trim(),
-      parsed,
-      syncedToPartner: false,
-    };
-
-    const nextFeeds = [newFeed, ...snsFeeds];
-    setSnsFeeds(nextFeeds);
-    applySnsFeedToPartner(newFeed);
-    setSnsInputText('');
   };
 
   const handleAddPartner = (e) => {
@@ -1554,7 +1387,7 @@ const unsearchedTopPartnersCount = useMemo(
                   수산물 종합 유통·시세 대시보드
                 </h1>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                  v3.4 · 부산·남해 위판장 · 12시 자동갱신
+                  v3.5 · 공식 위판시세 · 매입 인사이트
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -1578,7 +1411,7 @@ const unsearchedTopPartnersCount = useMemo(
               className="inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold rounded-lg border text-sky-700 bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer"
             >
               <Database className="w-3.5 h-3.5 text-sky-600" />
-              <span className="hidden md:inline">동기화 · AI키 설정</span>
+              <span className="hidden md:inline">동기화 · API키 설정</span>
             </button>
             <button
               onClick={() => setActiveModal('excel')}
@@ -1696,7 +1529,7 @@ const unsearchedTopPartnersCount = useMemo(
               </span>
             </div>
             <p className="text-xs text-slate-500 mt-1.5">
-              엑셀 일괄 등록 및 SNS·웹 검색 연동 완료
+              엑셀 일괄 등록 및 웹 메뉴 검색 연동 완료
             </p>
           </div>
 
@@ -1736,174 +1569,17 @@ const unsearchedTopPartnersCount = useMemo(
           onUpdateSpeciesMarkets={handleUpdateSpeciesMarkets}
         />
 
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-5 border-b border-slate-100">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="w-7 h-7 rounded-lg bg-gradient-to-tr from-amber-500 via-pink-500 to-purple-600 text-white flex items-center justify-center shadow-2xs">
-                  <Instagram className="w-4 h-4" />
-                </span>
-                <h2 className="text-lg font-bold text-slate-900">
-                  등록 거래업체 SNS 자동 수집 및 AI 단가·입고 정리
-                </h2>
-                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                  <Radio className="w-3 h-3 animate-pulse" />
-                  인스타 · 네이버 연동
-                </span>
-              </div>
-              <p className="text-xs text-slate-500 mt-1">
-                등록된 거래업체의 인스타그램 입항 공지를 자동 수집해 어종·단가·물량으로 구조화합니다.
-              </p>
-            </div>
-
-            <button
-              onClick={handleSyncAllPartnersSns}
-              disabled={isSyncingSns}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white transition-colors cursor-pointer disabled:opacity-60 self-start md:self-auto"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isSyncingSns ? 'animate-spin' : ''}`} />
-              {isSyncingSns ? 'SNS 채널 수집 중...' : '전체 거래처 SNS 지금 동기화'}
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-5">
-            <div className="lg:col-span-7 space-y-3 max-h-[430px] overflow-y-auto pr-1">
-              {snsFeeds.length === 0 ? (
-                <div className="p-8 rounded-xl border border-dashed border-slate-200 bg-slate-50/60 text-center space-y-2">
-                  <Instagram className="w-7 h-7 text-slate-400 mx-auto" />
-                  <p className="text-xs font-semibold text-slate-600">
-                    수집된 거래업체 SNS 게시글이 없습니다.
-                  </p>
-                  <p className="text-[11px] text-slate-400">
-                    엑셀 파일을 업로드해 거래처를 등록한 뒤 우측 입력창이나 상단 동기화 버튼을 이용해 주세요.
-                  </p>
-                </div>
-              ) : (
-                snsFeeds.map((feed) => (
-                  <div
-                    key={feed.id}
-                    className="p-4 rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-white transition-colors"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold text-sm text-slate-900">{feed.companyName}</span>
-                        <a
-                          href={`https://www.instagram.com/explore/tags/${encodeURIComponent(
-                            buildRegionCompanyQuery(feed.companyName, '').replace(/\s+/g, '')
-                          )}/`}
-                          onClick={(e) => openInstagramSearchInApp(e, feed.companyName, '')}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-pink-50 text-pink-700 border border-pink-200 hover:bg-pink-100"
-                        >
-                          <Instagram className="w-3 h-3" />
-                          인스타 앱 검색
-                        </a>
-                        <span className="text-[11px] text-slate-400">{feed.postedAt}</span>
-                      </div>
-
-                      {feed.syncedToPartner ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                          <Check className="w-3 h-3" />
-                          거래처 단가표 반영됨
-                        </span>
-                      ) : (
-                        <button
-                          onClick={() => applySnsFeedToPartner(feed)}
-                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-white bg-sky-600 hover:bg-sky-700 px-2.5 py-1 rounded-full cursor-pointer"
-                        >
-                          거래처 정보에 즉시 반영
-                        </button>
-                      )}
-                    </div>
-
-                    <p className="text-xs text-slate-600 bg-white p-2.5 rounded-lg border border-slate-100 leading-relaxed mb-2.5">
-                      &ldquo;{feed.rawText}&rdquo;
-                    </p>
-
-                    <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-50 text-sky-700 font-semibold">
-                        <Sparkles className="w-3 h-3" />
-                        AI 추출: {feed.parsed.species}
-                      </span>
-                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 font-medium">
-                        {feed.parsed.spec}
-                      </span>
-                      <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-800 font-bold">
-                        {formatNumber(feed.parsed.unitPrice)} {feed.parsed.unitLabel}
-                      </span>
-                      <span className="px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 font-semibold">
-                        입고 {formatNumber(feed.parsed.volume)} {feed.parsed.volumeUnit}
-                      </span>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="lg:col-span-5 bg-gradient-to-b from-slate-50 to-sky-50/40 rounded-xl p-4 border border-slate-200 flex flex-col justify-between">
-              <form onSubmit={handleExtractCustomSnsPost} className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <MessageSquareText className="w-4 h-4 text-sky-600" />
-                  <h3 className="text-sm font-bold text-slate-900">
-                    업체 인스타 게시글 붙여넣기 · 자동 정리
-                  </h3>
-                </div>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  거래업체가 인스타그램에 올린 입항 공지글을 복사해 붙여넣으면 AI가 어종, 단가,
-                  입항량을 자동 추출하여 아래 거래업체 단가표에 즉시 반영합니다.
-                </p>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    대상 거래업체 선택
-                  </label>
-                  <select
-                    value={snsInputCompany}
-                    onChange={(e) => setSnsInputCompany(e.target.value)}
-                    disabled={partners.length === 0}
-                    className="w-full px-3 py-2 text-xs font-medium bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 disabled:bg-slate-100"
-                  >
-                    {partners.length === 0 ? (
-                      <option value="">먼저 엑셀 파일을 업로드해 주세요</option>
-                    ) : (
-                      partners.slice(0, 100).map((p) => (
-                        <option key={p.id} value={p.companyName}>
-                          {p.companyName}
-                        </option>
-                      ))
-                    )}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    인스타그램 게시글 내용
-                  </label>
-                  <textarea
-                    rows={4}
-                    placeholder="예: 오늘 새벽 통영항 입항! 선망 고등어 특대 10kg 1상자 39,000원 총 250상자 선별 완료했습니다."
-                    value={snsInputText}
-                    onChange={(e) => setSnsInputText(e.target.value)}
-                    className="w-full p-2.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 resize-none"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  className="w-full py-2.5 px-4 bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold rounded-xl shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <Sparkles className="w-3.5 h-3.5" />
-                  AI 자동 추출 및 거래처 상품 반영
-                </button>
-              </form>
-            </div>
-          </div>
-        </section>
+        {/* 매입 추천 · 트렌드 인사이트 (공식 위판 시세 × 판매처 TOP 5 수요 교차 분석) */}
+        <PurchaseInsightSection
+          speciesData={safeSpeciesData}
+          topIngredientsState={topIngredientsState}
+          partnersCount={partners.length}
+          selectedSpecies={selectedSpecies}
+          onSelectSpecies={setSelectedSpecies}
+        />
 
         <section className="space-y-6">
-
-        <TopIngredientsSection
+          <TopIngredientsSection
             partnersCount={partners.length}
             unsearchedCount={unsearchedTopPartnersCount}
             partners={partners}
