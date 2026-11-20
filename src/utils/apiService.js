@@ -24,6 +24,55 @@ function parseFlexibleJson(rawText) {
   }
 }
 
+// API 키에서 실제로 사용 가능한 최신 Flash 모델명을 1회 자동 조회해 캐싱
+let cachedAvailableModel = '';
+
+async function resolveWorkingGeminiModel(apiKey) {
+  if (cachedAvailableModel) return cachedAvailableModel;
+
+  try {
+    const res = await fetch(
+      'https://generativelanguage.googleapis.com/v1beta/models?pageSize=50',
+      { headers: { 'x-goog-api-key': apiKey } }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const models = Array.isArray(data?.models) ? data.models : [];
+      const supported = models
+        .filter(
+          (m) =>
+            Array.isArray(m.supportedGenerationMethods) &&
+            m.supportedGenerationMethods.includes('generateContent')
+        )
+        .map((m) => String(m.name || '').replace(/^models\//, ''));
+
+      const preferredOrder = [
+        'gemini-3-flash-preview',
+        'gemini-2.5-flash-preview-05-20',
+        'gemini-2.5-flash',
+        'gemini-2.0-flash',
+        'gemini-1.5-flash',
+      ];
+      for (const candidate of preferredOrder) {
+        if (supported.includes(candidate)) {
+          cachedAvailableModel = candidate;
+          return candidate;
+        }
+      }
+      const anyFlash = supported.find((name) => name.includes('flash'));
+      if (anyFlash) {
+        cachedAvailableModel = anyFlash;
+        return anyFlash;
+      }
+    }
+  } catch (_) {
+    // 목록 조회 실패 시 기본값 사용
+  }
+
+  cachedAvailableModel = 'gemini-3-flash-preview';
+  return cachedAvailableModel;
+}
+
 // 429(사용 한도 초과) 발생 시 연쇄 호출이나 재시도 없이 즉시 중단하는 단일 호출 함수
 async function callGeminiWithFallback(userQuery, geminiApiKey = '', useSearch = true) {
   const apiKey = (geminiApiKey || '').trim();
@@ -36,8 +85,8 @@ async function callGeminiWithFallback(userQuery, geminiApiKey = '', useSearch = 
     };
   }
 
-  const baseUrl =
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent';
+  const activeModel = await resolveWorkingGeminiModel(apiKey);
+  const baseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent`;
   const reqHeaders = {
     'Content-Type': 'application/json',
     'x-goog-api-key': apiKey,
@@ -64,6 +113,10 @@ async function callGeminiWithFallback(userQuery, geminiApiKey = '', useSearch = 
           error:
             'AI 무료 사용 한도(분당 또는 일일 할당량)를 모두 소진했습니다. 추가 호출을 즉시 중지합니다.',
         };
+      }
+
+      if (response.status === 404) {
+        cachedAvailableModel = '';
       }
 
       const errBody = await response.text().catch(() => '');

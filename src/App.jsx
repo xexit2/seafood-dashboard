@@ -49,6 +49,7 @@ import {
   searchPartnerWebAndMenus,
   searchTopIngredientsBatch,
   fetchSpeciesAuctionTrend,
+  fetchAllSpeciesAuctionBatch,
 } from './utils/apiService';
 
 const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
@@ -411,39 +412,18 @@ export default function App() {
     }
   };
 
+  // 전 어종 시세를 단 1회 AI 호출로 일괄 갱신 (12:00 자동 갱신 및 실시간 수동 갱신 공용)
   const refreshAllSpeciesAuction = async (isAutoNoon = false) => {
     if (isRefreshingAuction) return;
     setIsRefreshingAuction(true);
 
     const schedule = getKstScheduleInfo();
-    const keys = Object.keys(safeSpeciesData);
-    const updatedMap = { ...safeSpeciesData };
-    let liveUpdatedCount = 0;
-
-  for (let i = 0; i < keys.length; i++) {
-      const spKey = keys[i];
-      const existing = safeSpeciesData[spKey];
-      const marketNames =
-        Array.isArray(existing?.markets) && existing.markets.length > 0
-          ? existing.markets.map((m) => m.market)
-          : DEFAULT_SOUTH_MARKETS;
-
-      const res = await fetchSpeciesAuctionTrend(
-        spKey,
+    const { updatedMap, liveUpdatedCount, isRateLimit, error } =
+      await fetchAllSpeciesAuctionBatch(
+        safeSpeciesData,
         supabaseConfig.geminiKey,
-        marketNames,
-        existing
+        DEFAULT_SOUTH_MARKETS
       );
-      if (res && res.data) {
-        updatedMap[spKey] = res.data;
-        if (!res.isFallback) liveUpdatedCount += 1;
-      }
-
-      // 무료 API 분당 호출 제한(429) 방지를 위해 어종 간 1.5초 간격 유지
-      if (i < keys.length - 1) {
-        await new Promise((r) => setTimeout(r, 1500));
-      }
-    }
 
     const updatedLabel = `${schedule.formattedNow}${isAutoNoon ? ' (12:00 자동)' : ' (수동)'}`;
     const nextNoonDate = schedule.isAfterNoon ? schedule.todayStr : lastNoonSyncDate;
@@ -459,13 +439,17 @@ export default function App() {
       lastNoonSyncDate: nextNoonDate,
     });
 
-    if (isAutoNoon) {
+    if (isRateLimit) {
+      showToast(
+        '⚠️ AI 무료 사용 한도를 모두 소진하여 연쇄 호출 없이 즉시 중지했습니다. (날짜만 오늘 기준으로 갱신됨)'
+      );
+    } else if (isAutoNoon) {
       showToast('낮 12:00 정기 스케줄에 따라 부산·남해 위판장 시세가 자동 갱신되었습니다.');
     } else if (liveUpdatedCount > 0) {
-      showToast(`부산·남해 위판장 ${liveUpdatedCount}개 어종 실시간 시세가 갱신되었습니다!`);
+      showToast(`부산·남해 위판장 ${liveUpdatedCount}개 어종 실시간 시세와 날짜가 최신화되었습니다!`);
     } else {
       showToast(
-        '시세 갱신이 실행되었습니다. (실시간 AI 자동 시세 조회는 상단 [동기화 · AI키 설정]에 Gemini 키 입력 시 활성화됩니다)'
+        `기준 날짜가 오늘(${schedule.todayStr})로 갱신되었습니다. (${error || 'AI 키 확인 필요'})`
       );
     }
   };
@@ -716,11 +700,17 @@ export default function App() {
       setSelectedSpecies(res.data.name);
       setSpeciesSearchInput('');
       persistDashboardState({ speciesData: nextSpeciesData });
-      showToast(
-        res.isFallback
-          ? `'${res.data.name}' 탭이 부산·남해 위판장 기준으로 추가되었습니다!`
-          : `'${res.data.name}' 부산·남해 위판장 시세 및 가격 추이가 추가되었습니다!`
-      );
+      if (res.isRateLimit) {
+        showToast(
+          `⚠️ AI 무료 사용 한도를 소진하여 '${res.data.name}' 탭만 기본 시세로 추가되었습니다.`
+        );
+      } else {
+        showToast(
+          res.isFallback
+            ? `'${res.data.name}' 탭이 부산·남해 위판장 기준으로 추가되었습니다!`
+            : `'${res.data.name}' 부산·남해 위판장 시세 및 가격 추이가 추가되었습니다!`
+        );
+      }
     }
   };
 
@@ -742,7 +732,6 @@ export default function App() {
     let analyzedCount = 0;
     let omittedCount = 0;
     let lastError = '';
-
     let hitRateLimit = false;
 
     for (let i = 0; i < total; i += batchSize) {
@@ -785,22 +774,6 @@ export default function App() {
       }
     }
 
-    if (hitRateLimit) {
-      showToast(
-        '⚠️ AI 무료 사용 한도를 모두 소진하여 연쇄 호출 없이 즉시 중지했습니다. (잠시 후 다시 시도하거나 유료 결제 계정을 연결해 주세요)'
-      );
-    } else if (abortSearchRef.current) {
-      showToast(`서치가 중지되었습니다. (${analyzedCount}개사 확인 결과 반영)`);
-    } else if (top5Items.length === 0) {
-      showToast(
-        lastError || '확인된 메인 원재료가 없습니다. 상단 [동기화 · AI키 설정]을 확인해 주세요.'
-      );
-    } else {
-      showToast(
-        `메인재료 TOP 5 갱신 완료! (확인 ${analyzedCount}개사 · 확인 불가 ${omittedCount}개사 생략)`
-      );
-    }
-
     const sorted = Object.entries(ingredientCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5);
@@ -826,11 +799,15 @@ export default function App() {
     setIsSearchingTopIngredients(false);
     await persistDashboardState({ topIngredients: nextTopState });
 
-    if (abortSearchRef.current) {
+    if (hitRateLimit) {
+      showToast(
+        '⚠️ AI 무료 사용 한도를 모두 소진하여 연쇄 호출 없이 즉시 중지했습니다. (잠시 후 다시 시도하거나 유료 결제 계정을 연결해 주세요)'
+      );
+    } else if (abortSearchRef.current) {
       showToast(`서치가 중지되었습니다. (${analyzedCount}개사 확인 결과 반영)`);
     } else if (top5Items.length === 0) {
       showToast(
-        '확인된 메인 원재료가 없습니다. 상단 [동기화 · AI키 설정]에서 Gemini API 키와 연결 테스트를 확인해 주세요.'
+        lastError || '확인된 메인 원재료가 없습니다. 상단 [동기화 · AI키 설정]을 확인해 주세요.'
       );
     } else {
       showToast(
