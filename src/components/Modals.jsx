@@ -16,7 +16,8 @@ import {
 export default function Modals({
   activeModal,
   setActiveModal,
-  partnersCount,
+  partnersCount = 0,
+  geminiKey = '',
   supabaseConfig,
   supabaseForm,
   setSupabaseForm,
@@ -25,6 +26,7 @@ export default function Modals({
   onRunConnectionDiagnostics,
   onSaveSupabaseConfig,
   onClearAllPartners,
+  onConfirmTopSearch,
   onRunTopIngredientsSearch,
   fileInputRef,
   excelFileName,
@@ -33,6 +35,7 @@ export default function Modals({
   setExcelFileName,
   onExcelFileChange,
   onConfirmExcelImport,
+  speciesKeys,
   speciesData,
   newPartnerForm,
   setNewPartnerForm,
@@ -41,14 +44,26 @@ export default function Modals({
   setNewAuctionForm,
   onAddAuction,
 }) {
-  const safeSpeciesMap = speciesData && typeof speciesData === 'object' ? speciesData : {};
-  const safeSpeciesKeys = Array.isArray(speciesKeys) && speciesKeys.length > 0 ? speciesKeys : Object.keys(safeSpeciesMap);
   if (!activeModal) return null;
+
+  const safeSpeciesMap =
+    speciesData && typeof speciesData === 'object' ? speciesData : {};
+  const safeSpeciesKeys =
+    Array.isArray(speciesKeys) && speciesKeys.length > 0
+      ? speciesKeys
+      : Object.keys(safeSpeciesMap);
+  const effectiveGeminiKey = geminiKey || supabaseConfig?.geminiKey || '';
+  const handleTriggerTopSearch = () => {
+    setActiveModal(null);
+    if (onConfirmTopSearch) onConfirmTopSearch();
+    else if (onRunTopIngredientsSearch) onRunTopIngredientsSearch();
+  };
 
   return (
     <>
       {/* 모달 1: TOP 5 메인재료 AI 서치 실행 확인창 */}
-      {activeModal === 'confirmTopIngredients' && (
+      {(activeModal === 'confirmTopSearch' ||
+        activeModal === 'confirmTopIngredients') && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
@@ -95,7 +110,7 @@ export default function Modals({
                 </span>
               </div>
 
-              {!supabaseConfig.geminiKey && (
+              {!effectiveGeminiKey && (
                 <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-2">
                   <div className="font-bold flex items-center gap-1.5">
                     <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
@@ -126,10 +141,7 @@ export default function Modals({
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setActiveModal(null);
-                  onRunTopIngredientsSearch();
-                }}
+                onClick={handleTriggerTopSearch}
                 className="px-4 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs cursor-pointer"
               >
                 확인 · 서치 시작
@@ -178,14 +190,14 @@ export default function Modals({
                 <input
                   type="text"
                   placeholder="AQ. 로 시작하는 Google AI Studio API 키 붙여넣기"
-                  value={supabaseForm.geminiKey}
+                  value={supabaseForm?.geminiKey || ''}
                   onChange={(e) =>
                     setSupabaseForm({ ...supabaseForm, geminiKey: e.target.value })
                   }
                   className="w-full px-3 py-2 text-xs bg-white border border-sky-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                 />
                 <p className="text-[11px] text-sky-800 leading-relaxed">
-                  * 구글 최신 <strong>AQ. 인증 키</strong>(x-goog-api-key 헤더 방식)를 공식 지원합니다. 키 입력 후 아래 <strong>[연결 테스트 실행]</strong>으로 즉시 정상 여부를 확인하세요.
+                  - 구글 최신 <strong>AQ. 인증 키</strong>(x-goog-api-key 헤더 방식)를 공식 지원합니다. 키 입력 후 아래 <strong>[연결 테스트 실행]</strong>으로 즉시 정상 여부를 확인하세요.
                 </p>
               </div>
 
@@ -200,7 +212,7 @@ export default function Modals({
                   <input
                     type="text"
                     placeholder="https://xxxxx.supabase.co"
-                    value={supabaseForm.url}
+                    value={supabaseForm?.url || ''}
                     onChange={(e) => setSupabaseForm({ ...supabaseForm, url: e.target.value })}
                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                   />
@@ -212,7 +224,7 @@ export default function Modals({
                   <input
                     type="text"
                     placeholder="eyJhbGciOiJIUzI1NiIs..."
-                    value={supabaseForm.anonKey}
+                    value={supabaseForm?.anonKey || ''}
                     onChange={(e) =>
                       setSupabaseForm({ ...supabaseForm, anonKey: e.target.value })
                     }
@@ -505,7 +517,7 @@ NOTIFY pgrst, 'reload schema';`}
                     }
                     className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
                   >
-                    {Object.keys(speciesData).map((sp) => (
+                    {safeSpeciesKeys.map((sp) => (
                       <option key={sp} value={sp}>
                         {sp}
                       </option>
@@ -667,9 +679,9 @@ NOTIFY pgrst, 'reload schema';`}
                   }
                   className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
                 >
-                  {Object.keys(speciesData).map((sp) => (
+                  {safeSpeciesKeys.map((sp) => (
                     <option key={sp} value={sp}>
-                      {sp} ({speciesData[sp].unit})
+                      {sp} ({safeSpeciesMap[sp]?.unit || ''})
                     </option>
                   ))}
                 </select>
