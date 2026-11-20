@@ -1,1139 +1,68 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-
-// 미리보기 및 Vite 환경에서 100% 호환되는 순수 함수형 인라인 SVG 아이콘 컴포넌트
-const SvgIcon = ({ children, className = 'w-4 h-4' }) => (
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    className={className}
-  >
-    {children}
-  </svg>
-);
-
-const Waves = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
-    <path d="M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
-    <path d="M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
-  </SvgIcon>
-);
-const Wind = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" />
-    <path d="M9.6 4.6A2 2 0 1 1 11 8H2" />
-    <path d="M12.6 19.4A2 2 0 1 0 14 16H2" />
-  </SvgIcon>
-);
-const Thermometer = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M14 4v10.54a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0Z" />
-  </SvgIcon>
-);
-const Compass = ({ className }) => (
-  <SvgIcon className={className}>
-    <circle cx="12" cy="12" r="10" />
-    <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
-  </SvgIcon>
-);
-const TrendingUp = ({ className }) => (
-  <SvgIcon className={className}>
-    <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
-    <polyline points="16 7 22 7 22 13" />
-  </SvgIcon>
-);
-const Building2 = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z" />
-    <path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2" />
-    <path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2" />
-    <path d="M10 6h4" />
-    <path d="M10 10h4" />
-    <path d="M10 14h4" />
-    <path d="M10 18h4" />
-  </SvgIcon>
-);
-const Package = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="m7.5 4.27 9 5.15" />
-    <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z" />
-    <path d="m3.3 7 8.7 5 8.7-5" />
-    <path d="M12 22V12" />
-  </SvgIcon>
-);
-const Search = ({ className }) => (
-  <SvgIcon className={className}>
-    <circle cx="11" cy="11" r="8" />
-    <path d="m21 21-4.3-4.3" />
-  </SvgIcon>
-);
-const Plus = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M5 12h14" />
-    <path d="M12 5v14" />
-  </SvgIcon>
-);
-const Filter = ({ className }) => (
-  <SvgIcon className={className}>
-    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-  </SvgIcon>
-);
-const Fish = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M6.5 12c.94-3.46 4.94-6 8.5-6 3.56 0 6.06 2.54 7 6-.94 3.47-3.44 6-7 6s-7.56-2.53-8.5-6Z" />
-    <path d="M18 12v.5" />
-    <path d="M16 17.93a9.77 9.77 0 0 1 0-11.86" />
-    <path d="M7 10.67C7 8 5.58 5.97 2.73 5.5c-1 1.5-1 5 .23 6.5-1.24 1.5-1.24 5-.23 6.5C5.58 18.03 7 16 7 13.33" />
-  </SvgIcon>
-);
-const Anchor = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M12 22V8" />
-    <path d="M5 12H2a10 10 0 0 0 20 0h-3" />
-    <circle cx="12" cy="5" r="3" />
-  </SvgIcon>
-);
-const AlertTriangle = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z" />
-    <path d="M12 9v4" />
-    <path d="M12 17h.01" />
-  </SvgIcon>
-);
-const CheckCircle2 = ({ className }) => (
-  <SvgIcon className={className}>
-    <circle cx="12" cy="12" r="10" />
-    <path d="m9 12 2 2 4-4" />
-  </SvgIcon>
-);
-const Phone = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
-  </SvgIcon>
-);
-const BarChart3 = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M3 3v18h18" />
-    <path d="M18 17V9" />
-    <path d="M13 17V5" />
-    <path d="M8 17v-3" />
-  </SvgIcon>
-);
-const X = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M18 6 6 18" />
-    <path d="m6 6 12 12" />
-  </SvgIcon>
-);
-const ArrowUpRight = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M7 7h10v10" />
-    <path d="M7 17 17 7" />
-  </SvgIcon>
-);
-const ArrowDownRight = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="m7 7 10 10" />
-    <path d="M17 7v10H7" />
-  </SvgIcon>
-);
-const RefreshCw = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-    <path d="M21 3v5h-5" />
-    <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-    <path d="M8 16H3v5" />
-  </SvgIcon>
-);
-const Sparkles = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3Z" />
-  </SvgIcon>
-);
-const Layers = ({ className }) => (
-  <SvgIcon className={className}>
-    <polygon points="12 2 2 7 12 12 22 7 12 2" />
-    <polyline points="2 17 12 22 22 17" />
-    <polyline points="2 12 12 17 22 12" />
-  </SvgIcon>
-);
-const ExternalLink = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-    <polyline points="15 3 21 3 21 9" />
-    <line x1="10" x2="21" y1="14" y2="3" />
-  </SvgIcon>
-);
-const MessageSquareText = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    <path d="M13 8H7" />
-    <path d="M17 12H7" />
-  </SvgIcon>
-);
-const Check = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M20 6 9 17l-5-5" />
-  </SvgIcon>
-);
-const Radio = ({ className }) => (
-  <SvgIcon className={className}>
-    <circle cx="12" cy="12" r="2" />
-    <path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48-.01a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14" />
-  </SvgIcon>
-);
-const FileSpreadsheet = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-    <path d="M14 2v4a2 2 0 0 0 2 2h4" />
-    <path d="M8 13h2" />
-    <path d="M14 13h2" />
-    <path d="M8 17h2" />
-    <path d="M14 17h2" />
-  </SvgIcon>
-);
-const Upload = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <polyline points="17 8 12 3 7 8" />
-    <line x1="12" x2="12" y1="3" y2="15" />
-  </SvgIcon>
-);
-const Globe = ({ className }) => (
-  <SvgIcon className={className}>
-    <circle cx="12" cy="12" r="10" />
-    <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
-    <path d="M2 12h20" />
-  </SvgIcon>
-);
-const MapPin = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
-    <circle cx="12" cy="10" r="3" />
-  </SvgIcon>
-);
-const Loader2 = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-  </SvgIcon>
-);
-const BookOpen = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
-    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
-  </SvgIcon>
-);
-const Lock = ({ className }) => (
-  <SvgIcon className={className}>
-    <rect width="18" height="11" x="3" y="11" rx="2" ry="2" />
-    <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-  </SvgIcon>
-);
-const KeyRound = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M2 18v3c0 .6.4 1 1 1h4v-3h3v-3h2l1.4-1.4a6.5 6.5 0 1 0-4-4Z" />
-    <circle cx="16.5" cy="7.5" r=".5" fill="currentColor" />
-  </SvgIcon>
-);
-const ShieldCheck = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
-    <path d="m9 12 2 2 4-4" />
-  </SvgIcon>
-);
-const Cloud = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
-  </SvgIcon>
-);
-const RotateCcw = ({ className }) => (
-  <SvgIcon className={className}>
-    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
-    <path d="M3 3v5h5" />
-  </SvgIcon>
-);
-const Database = ({ className }) => (
-  <SvgIcon className={className}>
-    <ellipse cx="12" cy="5" rx="9" ry="3" />
-    <path d="M3 5V19A9 3 0 0 0 21 19V5" />
-    <path d="M3 12A9 3 0 0 0 21 12" />
-  </SvgIcon>
-);
-const Instagram = ({ className }) => (
-  <SvgIcon className={className}>
-    <rect width="20" height="20" x="2" y="2" rx="5" ry="5" />
-    <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-    <line x1="17.5" x2="17.51" y1="6.5" y2="6.5" />
-  </SvgIcon>
-);
-
-const appId = 'seafood-dashboard-app';
-
-// [보안 기본 마스터 PIN] 관리자가 원하는 4자리 숫자로 변경 가능 (클라우드 DB에 저장된 PIN이 있으면 최우선 적용됨)
-const DEFAULT_MASTER_PIN = '1234';
-
-// 대표님 전용 Supabase 실시간 동기화 기본 설정 (PC · 모바일 무설정 자동 연동)
-const DEFAULT_SUPABASE_URL = 'https://xoprcktqaekcmkuhdehg.supabase.co';
-const DEFAULT_SUPABASE_ANON_KEY =
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhvcHJja3RxYWVrY21rdWhkZWhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUwMDc3NDUsImV4cCI6MjExMDU4Mzc0NX0.9Jw9TCCYNWYkx2ZtK-A45s2OVHOHEDDASqVV0zIzeM0';
-
-// 외부 라이브러리 없이 브라우저 자체 기능으로 .xlsx(ZIP+XML)를 직접 해독하는 내장 파서 (Central Directory 지원)
-async function parseXlsxNatively(arrayBuffer) {
-  const bytes = new Uint8Array(arrayBuffer);
-  const view = new DataView(arrayBuffer);
-  const decoder = new TextDecoder('utf-8');
-  const entries = {};
-
-  const targetFiles = new Set(['xl/sharedStrings.xml', 'xl/worksheets/sheet1.xml']);
-
-  const decompressEntry = async (method, rawData, fileName) => {
-    if (method === 0) {
-      return decoder.decode(rawData);
-    }
-    if (method === 8 && typeof DecompressionStream !== 'undefined') {
-      const ds = new DecompressionStream('deflate-raw');
-      const outPromise = new Response(ds.readable).arrayBuffer();
-      const writer = ds.writable.getWriter();
-      writer.write(rawData);
-      writer.close();
-      const outBuf = await outPromise;
-      return decoder.decode(outBuf);
-    }
-    console.warn('지원하지 않는 압축 방식:', fileName, method);
-    return null;
-  };
-
-  let eocdOffset = -1;
-  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65558); i--) {
-    if (view.getUint32(i, true) === 0x06054b50) {
-      eocdOffset = i;
-      break;
-    }
-  }
-
-  if (eocdOffset !== -1) {
-    const cdCount = view.getUint16(eocdOffset + 10, true);
-    const cdOffset = view.getUint32(eocdOffset + 16, true);
-    let pos = cdOffset;
-
-    for (let i = 0; i < cdCount && pos + 46 <= bytes.length; i++) {
-      if (view.getUint32(pos, true) !== 0x02014b50) break;
-      const method = view.getUint16(pos + 10, true);
-      const compSize = view.getUint32(pos + 20, true);
-      const nameLen = view.getUint16(pos + 28, true);
-      const extraLen = view.getUint16(pos + 30, true);
-      const commentLen = view.getUint16(pos + 32, true);
-      const localOffset = view.getUint32(pos + 42, true);
-      const fileName = decoder.decode(bytes.slice(pos + 46, pos + 46 + nameLen));
-
-      if (targetFiles.has(fileName) || fileName.startsWith('xl/worksheets/sheet')) {
-        const lNameLen = view.getUint16(localOffset + 26, true);
-        const lExtraLen = view.getUint16(localOffset + 28, true);
-        const dataStart = localOffset + 30 + lNameLen + lExtraLen;
-        const rawData = bytes.slice(dataStart, dataStart + compSize);
-        try {
-          const text = await decompressEntry(method, rawData, fileName);
-          if (text) entries[fileName] = text;
-        } catch (err) {
-          console.warn('XML 압축 해제 실패:', fileName, err);
-        }
-      }
-
-      pos += 46 + nameLen + extraLen + commentLen;
-    }
-  }
-
-  const sheetKey = entries['xl/worksheets/sheet1.xml']
-    ? 'xl/worksheets/sheet1.xml'
-    : Object.keys(entries).find((k) => k.startsWith('xl/worksheets/sheet'));
-
-  if (!sheetKey) return [];
-
-  const xmlParser = new DOMParser();
-  const sharedStrings = [];
-  if (entries['xl/sharedStrings.xml']) {
-    const ssDoc = xmlParser.parseFromString(entries['xl/sharedStrings.xml'], 'application/xml');
-    const siNodes = ssDoc.getElementsByTagName('si');
-    for (let i = 0; i < siNodes.length; i++) {
-      const tNodes = siNodes[i].getElementsByTagName('t');
-      let combined = '';
-      for (let j = 0; j < tNodes.length; j++) {
-        combined += tNodes[j].textContent || '';
-      }
-      sharedStrings.push(combined);
-    }
-  }
-
-  const colLetterToIndex = (ref) => {
-    const letters = (ref || '').replace(/[0-9]/g, '');
-    let idx = 0;
-    for (let i = 0; i < letters.length; i++) {
-      idx = idx * 26 + (letters.charCodeAt(i) - 64);
-    }
-    return Math.max(0, idx - 1);
-  };
-
-  const sheetDoc = xmlParser.parseFromString(entries[sheetKey], 'application/xml');
-  const rowNodes = sheetDoc.getElementsByTagName('row');
-  const resultRows = [];
-
-  for (let i = 0; i < rowNodes.length; i++) {
-    const rowArr = [];
-    const cNodes = rowNodes[i].getElementsByTagName('c');
-    for (let j = 0; j < cNodes.length; j++) {
-      const cell = cNodes[j];
-      const ref = cell.getAttribute('r') || '';
-      const colIdx = ref ? colLetterToIndex(ref) : j;
-      const type = cell.getAttribute('t');
-      let val = '';
-
-      if (type === 's') {
-        const vNode = cell.getElementsByTagName('v')[0];
-        const sIdx = vNode ? Number(vNode.textContent) : -1;
-        val = sIdx >= 0 && sharedStrings[sIdx] !== undefined ? sharedStrings[sIdx] : '';
-      } else if (type === 'inlineStr') {
-        const tNode = cell.getElementsByTagName('t')[0];
-        val = tNode ? tNode.textContent || '' : '';
-      } else {
-        const vNode = cell.getElementsByTagName('v')[0];
-        val = vNode ? vNode.textContent || '' : '';
-      }
-
-      rowArr[colIdx] = val;
-    }
-    resultRows.push(rowArr);
-  }
-
-  return resultRows;
-}
-
-function extractTopRegion(address = '') {
-  const clean = (address || '').trim();
-  if (!clean || clean === '주소 미기재' || clean === '직접 등록 거래처' || clean === 'SNS 연동 업체') {
-    return '';
-  }
-  const firstToken = clean.split(/\s+/)[0] || '';
-  return firstToken
-    .replace(/(특별시|광역시|특별자치시|특별자치도|도|시)$/, '')
-    .trim();
-}
-
-function buildRegionCompanyQuery(companyName = '', address = '') {
-  const name = (companyName || '').trim();
-  const topRegion = extractTopRegion(address);
-  if (!topRegion || name.includes(topRegion)) {
-    return name;
-  }
-  return `${topRegion} ${name}`.trim();
-}
-
-function openInstagramSearchInApp(e, companyName, address = '') {
-  const searchQuery = buildRegionCompanyQuery(companyName, address);
-  if (!searchQuery) return;
-
-  try {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(searchQuery).catch(() => {});
-    }
-  } catch (_) {}
-
-  const tagKeyword = searchQuery.replace(/\s+/g, '');
-  const webUrl = `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`;
-
-  const ua = typeof navigator !== 'undefined' ? navigator.userAgent || '' : '';
-  const isAndroid = /Android/i.test(ua);
-  const isIOS = /iPhone|iPad|iPod/i.test(ua);
-
-  if (!isAndroid && !isIOS) {
-    return;
-  }
-
-  if (e && e.preventDefault) {
-    e.preventDefault();
-  }
-
-  if (isAndroid) {
-    const intentUrl = `intent://instagram.com/explore/tags/${encodeURIComponent(
-      tagKeyword
-    )}/#Intent;package=com.instagram.android;scheme=https;S.browser_fallback_url=${encodeURIComponent(
-      webUrl
-    )};end`;
-    window.location.href = intentUrl;
-    return;
-  }
-
-  if (isIOS) {
-    const appScheme = `instagram://tag?name=${encodeURIComponent(tagKeyword)}`;
-    const clickedAt = Date.now();
-    window.location.href = appScheme;
-    setTimeout(() => {
-      if (document.visibilityState === 'visible' && Date.now() - clickedAt < 2200) {
-        window.open(webUrl, '_blank', 'noopener,noreferrer');
-      }
-    }, 1200);
-    return;
-  }
-
-  window.open(webUrl, '_blank', 'noopener,noreferrer');
-}
-
-const INITIAL_WEATHER_DATA = {
-  busan: {
-    id: 'busan',
-    name: '부산 · 남해동부 (공동어시장)',
-    lat: 35.09,
-    lon: 129.04,
-    zoom: 8,
-    airTemp: 14,
-    waterTemp: 16.5,
-    windSpeed: 5.4,
-    windDir: '북서풍',
-    waveHeight: 1.1,
-    status: '조업 원활',
-    statusType: 'good',
-    updatedAt: '오늘 06:00 기상청·Windy 기준',
-    summary: '연안 파고 1.1m 내외로 선망 및 연안 자망 어선 입출항이 원활하며 당일 위판 물량 공급이 안정적입니다.',
-  },
-  jeju: {
-    id: 'jeju',
-    name: '제주 · 추자 근해 (한림·서귀포)',
-    lat: 33.45,
-    lon: 126.55,
-    zoom: 8,
-    airTemp: 16,
-    waterTemp: 18.2,
-    windSpeed: 11.8,
-    windDir: '북동풍',
-    waveHeight: 2.6,
-    status: '풍랑 주의',
-    statusType: 'warning',
-    updatedAt: '오늘 06:00 기상청·Windy 기준',
-    summary: '제주 먼바다 풍속 11m/s 이상 강풍으로 소형 갈치 채낚기 어선 출항이 일부 제한되어 산지 시세 강세가 예상됩니다.',
-  },
-  tongyeong: {
-    id: 'tongyeong',
-    name: '통영 · 거제 (남해중부)',
-    lat: 34.84,
-    lon: 128.43,
-    zoom: 9,
-    airTemp: 13,
-    waterTemp: 15.8,
-    windSpeed: 6.2,
-    windDir: '서풍',
-    waveHeight: 0.9,
-    status: '조업 양호',
-    statusType: 'good',
-    updatedAt: '오늘 06:00 기상청·Windy 기준',
-    summary: '내만 해상 잔잔하여 가두리 양식장 출하 및 활어 운반차량 선적 작업에 지장이 없습니다.',
-  },
-  east: {
-    id: 'east',
-    name: '포항 · 구룡포 (동해남부)',
-    lat: 36.01,
-    lon: 129.55,
-    zoom: 8,
-    airTemp: 11,
-    waterTemp: 14.1,
-    windSpeed: 8.9,
-    windDir: '북풍',
-    waveHeight: 1.9,
-    status: '일부 주의',
-    statusType: 'caution',
-    updatedAt: '오늘 06:00 기상청·Windy 기준',
-    summary: '동해 먼바다 너울성 파도가 다소 높아 대게·오징어 근해 어선 조업 시 기상 특보 확인이 필요합니다.',
-  },
-};
-
-const INITIAL_SPECIES_DATA = {
-  삼치: {
-    name: '삼치',
-    grade: '선망 특대 (3kg 이상/마리)',
-    unit: '원/상자(10kg)',
-    currentAvg: 64000,
-    prevDiffRate: 6.2,
-    history7d: [
-      { date: '11/12', price: 58500 },
-      { date: '11/13', price: 59200 },
-      { date: '11/14', price: 60500 },
-      { date: '11/15', price: 61800 },
-      { date: '11/16', price: 62500 },
-      { date: '11/17', price: 60300 },
-      { date: '11/18', price: 64000 },
-    ],
-    history30d: [
-      { date: '10/20', price: 52000 },
-      { date: '10/27', price: 55400 },
-      { date: '11/03', price: 58000 },
-      { date: '11/10', price: 61000 },
-      { date: '11/18', price: 64000 },
-    ],
-    markets: [
-      { market: '부산공동어시장', price: 64500, diff: 3800, volume: '1,850 상자', status: '강세' },
-      { market: '여수수협위판장', price: 65200, diff: 4100, volume: '1,120 상자', status: '급등' },
-      { market: '서귀포수협위판장', price: 62300, diff: 2900, volume: '740 상자', status: '상승' },
-    ],
-  },
-  금태: {
-    name: '금태',
-    grade: '눈볼대 특대 (400g 이상)',
-    unit: '원/kg',
-    currentAvg: 48500,
-    prevDiffRate: 4.5,
-    history7d: [
-      { date: '11/12', price: 45000 },
-      { date: '11/13', price: 45800 },
-      { date: '11/14', price: 46200 },
-      { date: '11/15', price: 47000 },
-      { date: '11/16', price: 47500 },
-      { date: '11/17', price: 46400 },
-      { date: '11/18', price: 48500 },
-    ],
-    history30d: [
-      { date: '10/20', price: 41000 },
-      { date: '10/27', price: 43200 },
-      { date: '11/03', price: 44800 },
-      { date: '11/10', price: 46500 },
-      { date: '11/18', price: 48500 },
-    ],
-    markets: [
-      { market: '부산공동어시장', price: 49000, diff: 2200, volume: '520 kg', status: '강세' },
-      { market: '속초수협위판장', price: 48200, diff: 1800, volume: '340 kg', status: '상승' },
-      { market: '제주한림수협', price: 48300, diff: 2000, volume: '290 kg', status: '강세' },
-    ],
-  },
-  고등어: {
-    name: '고등어',
-    grade: '선망 대 (10kg 상자)',
-    unit: '원/상자',
-    currentAvg: 38500,
-    prevDiffRate: -2.1,
-    history7d: [
-      { date: '11/12', price: 40500 },
-      { date: '11/13', price: 40000 },
-      { date: '11/14', price: 39800 },
-      { date: '11/15', price: 39200 },
-      { date: '11/16', price: 39500 },
-      { date: '11/17', price: 39300 },
-      { date: '11/18', price: 38500 },
-    ],
-    history30d: [
-      { date: '10/20', price: 42000 },
-      { date: '10/27', price: 41200 },
-      { date: '11/03', price: 40100 },
-      { date: '11/10', price: 39400 },
-      { date: '11/18', price: 38500 },
-    ],
-    markets: [
-      { market: '부산공동어시장', price: 38500, diff: -800, volume: '8,500 상자', status: '약세' },
-      { market: '제주한림수협', price: 39200, diff: -500, volume: '2,100 상자', status: '보합' },
-      { market: '삼천포수협위판장', price: 37800, diff: -1000, volume: '1,650 상자', status: '약세' },
-    ],
-  },
-  전갱이: {
-    name: '전갱이',
-    grade: '선망 중·대 (10kg 상자)',
-    unit: '원/상자',
-    currentAvg: 29800,
-    prevDiffRate: 3.1,
-    history7d: [
-      { date: '11/12', price: 28000 },
-      { date: '11/13', price: 28400 },
-      { date: '11/14', price: 28700 },
-      { date: '11/15', price: 29000 },
-      { date: '11/16', price: 29200 },
-      { date: '11/17', price: 28900 },
-      { date: '11/18', price: 29800 },
-    ],
-    history30d: [
-      { date: '10/20', price: 26500 },
-      { date: '10/27', price: 27200 },
-      { date: '11/03', price: 28100 },
-      { date: '11/10', price: 29000 },
-      { date: '11/18', price: 29800 },
-    ],
-    markets: [
-      { market: '부산공동어시장', price: 30000, diff: 900, volume: '3,400 상자', status: '상승' },
-      { market: '통영수협위판장', price: 29500, diff: 800, volume: '1,820 상자', status: '상승' },
-      { market: '제주한림수협', price: 29900, diff: 1000, volume: '1,450 상자', status: '강세' },
-    ],
-  },
-};
-
-function isLegacySpeciesMap(spMap) {
-  if (!spMap || typeof spMap !== 'object') return true;
-  const keys = Object.keys(spMap);
-  if (keys.length === 0) return true;
-  const legacyOnly = ['대방어', '은갈치', '참돔', '광어', '오징어', '꽃게'];
-  const hasNewCore = keys.includes('삼치') && keys.includes('금태');
-  const hasLegacy = keys.some((k) => legacyOnly.includes(k));
-  return !hasNewCore && hasLegacy;
-}
-
-const INITIAL_PARTNERS = [];
-const INITIAL_SNS_FEEDS = [];
-
-function inferPartnerMetadata(companyName = '', address = '', idx = 0) {
-  const combined = `${companyName} ${address}`;
-  let category = '고등어';
-  let mainProduct = '네이버 메뉴 서칭 대기';
-  let unitPrice = 38500;
-  let unitLabel = '원/상자';
-  let volumeUnit = '상자';
-
-  if (combined.includes('삼치') || combined.includes('여수')) {
-    category = '삼치';
-    unitPrice = 64000;
-    unitLabel = '원/상자';
-    volumeUnit = '상자';
-  } else if (
-    combined.includes('금태') ||
-    combined.includes('눈볼대') ||
-    combined.includes('일식') ||
-    combined.includes('오마카세')
-  ) {
-    category = '금태';
-    unitPrice = 48500;
-    unitLabel = '원/kg';
-    volumeUnit = 'kg';
-  } else if (combined.includes('전갱이') || combined.includes('통영') || combined.includes('아지')) {
-    category = '전갱이';
-    unitPrice = 29800;
-    unitLabel = '원/상자';
-    volumeUnit = '상자';
-  }
-
-  const combinedQuery = buildRegionCompanyQuery(companyName, address);
-  const tagKeyword = combinedQuery.replace(/\s+/g, '');
-
-  return {
-    snsPlatform: 'Instagram',
-    snsHandle: `#${tagKeyword}`,
-    instagramUrl: `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`,
-    blogUrl: `https://search.naver.com/search.naver?query=${encodeURIComponent(combinedQuery)}`,
-    category,
-    mainProduct,
-    topReviewMenu: '',
-    searchedMenus: [],
-    aiSummary: '',
-    isSearched: false,
-    unitPrice,
-    unitLabel,
-    totalVolume: 120 + (idx % 10) * 15,
-    volumeUnit,
-    status: '활발',
-    lastOrder: '2026-11-18',
-  };
-}
-
-function parseSnsPostText(rawText = '') {
-  const text = String(rawText || '');
-  const speciesList = ['삼치', '금태', '고등어', '전갱이'];
-  let species = '고등어';
-  for (const sp of speciesList) {
-    if (
-      text.includes(sp) ||
-      (sp === '금태' && text.includes('눈볼대')) ||
-      (sp === '전갱이' && text.includes('아지'))
-    ) {
-      species = sp;
-      break;
-    }
-  }
-
-  const priceMatch = text.match(/(\d{1,3}(?:,\d{3})+|\d{4,6})\s*원/);
-  const unitPrice = priceMatch ? Number(priceMatch[1].replace(/,/g, '')) : 39000;
-  const isKg = text.toLowerCase().includes('kg') && !text.includes('상자');
-  const unitLabel = isKg ? '원/kg' : '원/상자';
-
-  const volMatch = text.match(/(\d+)\s*(상자|박스|kg|마리)/i);
-  const volume = volMatch ? Number(volMatch[1]) : 100;
-  const volumeUnit = volMatch && volMatch[2].toLowerCase() === 'kg' ? 'kg' : '상자';
-
-  const specMatch = text.match(/(\d+\s*kg[^,\n.]*|특대|대자|선망|산지\s*직송)/i);
-  const spec = specMatch ? specMatch[0].trim() : `${species} 산지 직송 특선`;
-
-  return {
-    species,
-    spec,
-    unitPrice,
-    unitLabel,
-    volume,
-    volumeUnit,
-    available: true,
-  };
-}
-
-async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
-  const apiKey = (geminiApiKey || '').trim();
-  const apiUrl = apiKey
-    ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent'
-    : 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=';
-  const reqHeaders = { 'Content-Type': 'application/json' };
-  if (apiKey) {
-    // 최신 Google AI Studio AQ. 인증 키는 x-goog-api-key 헤더로 전송해야 정상 작동
-    reqHeaders['x-goog-api-key'] = apiKey;
-  }
-
-  const combinedQuery = buildRegionCompanyQuery(partner.companyName, partner.address);
-  const tagKeyword = combinedQuery.replace(/\s+/g, '');
-  const defaultInstaSearchUrl = `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`;
-  const naverPlaceMenuUrl = `https://search.naver.com/search.naver?query=${encodeURIComponent(
-    `${combinedQuery} 메뉴`
-  )}`;
-
-  const userQuery = `대한민국 업체 "${combinedQuery}" (상세주소: ${partner.address})의 네이버 플레이스(map.naver.com) 메뉴판 및 방문자 별점 5점(최고평점/호평) 리뷰와 네이버 블로그 후기를 분석해줘.
-중요 규칙:
-1. 네이버 플레이스 방문자 리뷰(특히 5점 만점 호평 리뷰 및 추천 리뷰)에서 고객들이 가장 많이 언급하고 극찬한 대표 메뉴 1순위를 "topReviewMenu"에 넣어줘. (예: "금태구이", "삼치회", "고등어봉초밥" 등)
-2. 네이버 플레이스 메뉴판이나 블로그 리뷰에서 실제로 확인되는 전체 대표 메뉴 목록을 "menus" 배열에 넣어줘. (1순위가 가장 앞에 오도록 정렬)
-3. 추측하거나 지어내지 말고, 검색 결과에서 확인되지 않으면 "topReviewMenu"는 빈 문자열 "", "menus"는 빈 배열 [] 로 반환해줘.
-4. 반드시 순수 JSON 객체만 반환해줘:
-{
-  "topReviewMenu": "네이버 5점 리뷰 최다 언급 1위 메뉴명",
-  "menus": ["5점 리뷰 최다 언급 메뉴1", "메뉴2", "메뉴3"],
-  "blogUrl": "확인된 네이버 플레이스 또는 블로그 URL (없으면 빈 문자열)",
-  "summary": "네이버 5점 리뷰에서 가장 많이 언급된 메뉴와 고객 평가 특징 1~2문장 요약"
-}`;
-
-  const payload = {
-    contents: [{ parts: [{ text: userQuery }] }],
-    tools: [{ google_search: {} }],
-  };
-
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: reqHeaders,
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const result = await response.json();
-      const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        const validMenus = Array.isArray(parsed.menus)
-          ? parsed.menus.map((m) => String(m).trim()).filter(Boolean)
-          : [];
-        const topMenu = String(parsed.topReviewMenu || '').trim() || validMenus[0] || '';
-        return {
-          topReviewMenu: topMenu,
-          menus: validMenus,
-          instagramHandle: `#${tagKeyword}`,
-          instagramUrl: defaultInstaSearchUrl,
-          blogUrl:
-            parsed.blogUrl && parsed.blogUrl.startsWith('http')
-              ? parsed.blogUrl
-              : naverPlaceMenuUrl,
-          summary:
-            parsed.summary ||
-            (topMenu
-              ? `[${combinedQuery}] 네이버 5점 리뷰 최다 언급 메뉴는 '${topMenu}'입니다.`
-              : `[${combinedQuery}] 네이버 플레이스 리뷰 및 메뉴판에서 직접 확인이 필요합니다.`),
-        };
-      }
-      break;
-    } catch (err) {
-      if (attempt === 2) {
-        return {
-          topReviewMenu: '',
-          menus: [],
-          instagramHandle: `#${tagKeyword}`,
-          instagramUrl: defaultInstaSearchUrl,
-          blogUrl: naverPlaceMenuUrl,
-          summary: !apiKey
-            ? `[${combinedQuery}] 실제 사이트에서 AI 자동 분석을 쓰려면 상단 [동기화 · AI키 설정]에 Gemini API 키를 입력해 주세요. 아래 '네이버 메뉴' 버튼으로 즉시 확인 가능합니다.`
-            : `[${combinedQuery}] 네이버 리뷰·메뉴 검색 결과를 불러오지 못했습니다. 우측 '네이버 메뉴' 버튼으로 바로 확인하세요.`,
-        };
-      }
-      await new Promise((r) => setTimeout(r, 800 * Math.pow(2, attempt)));
-    }
-  }
-}
-
-async function fetchSpeciesAuctionTrend(speciesKeyword, geminiApiKey = '') {
-  const apiKey = (geminiApiKey || '').trim();
-  const apiUrl = apiKey
-    ? 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent'
-    : 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=';
-  const reqHeaders = { 'Content-Type': 'application/json' };
-  if (apiKey) {
-    reqHeaders['x-goog-api-key'] = apiKey;
-  }
-
-  const cleanName = String(speciesKeyword || '').trim();
-  const userQuery = `대한민국 수협 위판장(부산공동어시장, 통영수협, 여수수협, 제주한림수협, 속초수협 등)에서 거래되는 수산물 어종 "${cleanName}"의 최근 도매 위판 시세(낙찰가)와 주요 위판장별 시세를 검색해서 JSON으로 정리해줘.
-반드시 아래 JSON 형식만 출력해줘:
-{
-  "name": "${cleanName}",
-  "grade": "대표 규격 (예: 특대 10kg 상자 또는 1kg 기준)",
-  "unit": "원/kg 또는 원/상자",
-  "currentAvg": 35000,
-  "prevDiffRate": 2.4,
-  "history7d": [
-    { "date": "11/12", "price": 33500 },
-    { "date": "11/13", "price": 33800 },
-    { "date": "11/14", "price": 34000 },
-    { "date": "11/15", "price": 34200 },
-    { "date": "11/16", "price": 34500 },
-    { "date": "11/17", "price": 34200 },
-    { "date": "11/18", "price": 35000 }
-  ],
-  "history30d": [
-    { "date": "10/20", "price": 31000 },
-    { "date": "10/27", "price": 32200 },
-    { "date": "11/03", "price": 33000 },
-    { "date": "11/10", "price": 34100 },
-    { "date": "11/18", "price": 35000 }
-  ],
-  "markets": [
-    { "market": "부산공동어시장", "price": 35200, "diff": 800, "volume": "1,200 상자", "status": "상승" },
-    { "market": "통영수협위판장", "price": 34800, "diff": 600, "volume": "850 상자", "status": "보합" },
-    { "market": "여수수협위판장", "price": 35000, "diff": 900, "volume": "640 상자", "status": "강세" }
-  ]
-}`;
-
-  const payload = {
-    contents: [{ parts: [{ text: userQuery }] }],
-    tools: [{ google_search: {} }],
-  };
-
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const response = await fetch(apiUrl, {
-        method: 'POST',
-        headers: reqHeaders,
-        body: JSON.stringify(payload),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const result = await response.json();
-      const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        if (parsed && parsed.currentAvg && Array.isArray(parsed.history7d) && Array.isArray(parsed.markets)) {
-          return {
-            isFallback: false,
-            data: {
-              name: String(parsed.name || cleanName),
-              grade: String(parsed.grade || '산지 위판 표준 규격'),
-              unit: String(parsed.unit || '원/kg'),
-              currentAvg: Number(parsed.currentAvg) || 30000,
-              prevDiffRate: Number(parsed.prevDiffRate) || 0,
-              history7d: parsed.history7d.map((h) => ({
-                date: String(h.date || ''),
-                price: Number(h.price) || 0,
-              })),
-              history30d: Array.isArray(parsed.history30d)
-                ? parsed.history30d.map((h) => ({
-                    date: String(h.date || ''),
-                    price: Number(h.price) || 0,
-                  }))
-                : parsed.history7d,
-              markets: parsed.markets.map((m) => ({
-                market: String(m.market || '산지위판장'),
-                price: Number(m.price) || Number(parsed.currentAvg) || 30000,
-                diff: Number(m.diff) || 0,
-                volume: String(m.volume || '집계중'),
-                status: String(m.status || '보합'),
-              })),
-            },
-          };
-        }
-      }
-      break;
-    } catch (err) {
-      if (attempt === 1) break;
-      await new Promise((r) => setTimeout(r, 700));
-    }
-  }
-
-  return {
-    isFallback: true,
-    data: {
-      name: cleanName,
-      grade: '산지 위판 표준 규격 (수동 시세 입력 가능)',
-      unit: '원/kg',
-      currentAvg: 35000,
-      prevDiffRate: 0.0,
-      history7d: [
-        { date: '11/13', price: 35000 },
-        { date: '11/14', price: 35000 },
-        { date: '11/15', price: 35000 },
-        { date: '11/16', price: 35000 },
-        { date: '11/17', price: 35000 },
-        { date: '11/18', price: 35000 },
-        { date: '11/19', price: 35000 },
-      ],
-      history30d: [
-        { date: '10/22', price: 35000 },
-        { date: '10/29', price: 35000 },
-        { date: '11/05', price: 35000 },
-        { date: '11/12', price: 35000 },
-        { date: '11/19', price: 35000 },
-      ],
-      markets: [
-        { market: '부산공동어시장', price: 35000, diff: 0, volume: '집계중', status: '보합' },
-        { market: '통영수협위판장', price: 35000, diff: 0, volume: '집계중', status: '보합' },
-        { market: '여수수협위판장', price: 35000, diff: 0, volume: '집계중', status: '보합' },
-      ],
-    },
-  };
-}
-
-// YYYY-MM-DD HH:mm 형식 날짜 포맷터
-function formatDateTimeKST(date = new Date()) {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(
-    date.getHours()
-  )}:${pad(date.getMinutes())}`;
-}
-
-// 유연한 JSON 배열/객체 추출 파서 (마크다운 펜스, 후행 쉼표 등 자동 보정)
-function parseForgivingJsonResults(rawText = '') {
-  if (!rawText) return null;
-  const cleaned = String(rawText)
-    .replace(/```json\s*/gi, '')
-    .replace(/```\s*/g, '')
-    .trim();
-
-  const tryParse = (str) => {
-    try {
-      const noTrailingComma = str.replace(/,\s*([}\]])/g, '$1');
-      return JSON.parse(noTrailingComma);
-    } catch (_) {
-      return null;
-    }
-  };
-
-  // 1) 배열 형태 우선 탐색 ([ ... ])
-  const firstBracket = cleaned.indexOf('[');
-  const lastBracket = cleaned.lastIndexOf(']');
-  if (firstBracket !== -1 && lastBracket > firstBracket) {
-    const arrParsed = tryParse(cleaned.slice(firstBracket, lastBracket + 1));
-    if (Array.isArray(arrParsed)) return arrParsed;
-  }
-
-  // 2) 객체 래핑 형태 탐색 ({ results: [...] } 등)
-  const firstBrace = cleaned.indexOf('{');
-  const lastBrace = cleaned.lastIndexOf('}');
-  if (firstBrace !== -1 && lastBrace > firstBrace) {
-    const objParsed = tryParse(cleaned.slice(firstBrace, lastBrace + 1));
-    if (objParsed) {
-      if (Array.isArray(objParsed.results)) return objParsed.results;
-      if (Array.isArray(objParsed.data)) return objParsed.data;
-      if (Array.isArray(objParsed.items)) return objParsed.items;
-    }
-  }
-
-  return null;
-}
-
-// 5개 거래처 단위 배치로 네이버 메뉴·리뷰의 메인 원재료만 추출하는 내결함성 AI 서치 함수
-async function searchBatchMainIngredients(batchPartners = [], geminiApiKey = '') {
-  const apiKey = (geminiApiKey || '').trim();
-  const reqHeaders = { 'Content-Type': 'application/json' };
-  if (apiKey) {
-    reqHeaders['x-goog-api-key'] = apiKey;
-  }
-
-  const targetLines = batchPartners
-    .map((p, idx) => {
-      const region = extractTopRegion(p.address) || '전국';
-      const knownMenus = [
-        p.topReviewMenu,
-        ...(Array.isArray(p.searchedMenus) ? p.searchedMenus : []),
-      ]
-        .filter(Boolean)
-        .slice(0, 4)
-        .join(', ');
-      return `idx=${idx} | 업체명="${p.companyName}" | 지역="${region}"${
-        knownMenus ? ` | 기존확인메뉴="${knownMenus}"` : ''
-      }`;
-    })
-    .join('\n');
-
-  const userQuery = `아래 대한민국 식당/거래처들의 네이버 플레이스 메뉴판 및 방문자 리뷰를 Google 검색으로 확인하여, 각 업체 대표 메뉴에 사용된 "메인 원재료(식재료/어종명)"만 추출해줘.
-
-[대상 거래처 목록]
-${targetLines}
-
-[필수 변환 규칙]
-1. 음식명/조리명이 아니라 반드시 표준화된 "메인 원재료명"으로 변환해줘.
-   예시: "삼치회"->"삼치", "금태구이"->"금태", "고등어봉초밥"->"고등어", "대방어회"->"방어", "갈치조림"->"갈치", "참돔유비끼"->"참돔", "오징어순대"->"오징어", "모둠활어회"->["광어","우럭"], "연어초밥"->"연어", "전복죽"->"전복", "장어구이"->"장어", "꽃게탕"->"꽃게", "소고기구이"->"소고기", "삼겹살"->"돼지고기"
-2. 기존확인메뉴가 있으면 함께 참고하되, 네이버 검색에서 업체나 메뉴·원재료가 확인되지 않으면 추측하지 말고 반드시 빈 배열 [] 로 반환해줘.
-3. "수산물", "해산물", "생선", "회", "모둠", "기타", "확인불가" 같은 모호한 표현은 절대 넣지 마.
-4. 다른 설명 없이 반드시 순수 JSON 배열만 출력해줘:
-[{"idx": 0, "companyName": "업체명", "ingredients": ["삼치", "금태"]}]`;
-
-  const payload = {
-    contents: [{ parts: [{ text: userQuery }] }],
-    tools: [{ google_search: {} }],
-  };
-
-  // 1순위: gemini-3-flash-preview, 2순위 폴백: gemini-2.5-flash
-  const models = ['gemini-3-flash-preview', 'gemini-2.5-flash'];
-  let lastError = '';
-
-  for (const model of models) {
-    const apiUrl = apiKey
-      ? `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`
-      : `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=`;
-
-    for (let retry = 0; retry < 2; retry++) {
-      try {
-        const response = await fetch(apiUrl, {
-          method: 'POST',
-          headers: reqHeaders,
-          body: JSON.stringify(payload),
-        });
-
-        if (response.status === 429) {
-          const errText = await response.text().catch(() => '');
-          lastError = `HTTP 429 요청 한도 초과 (${model}): ${errText.slice(0, 90)}`;
-          if (retry === 0) {
-            await new Promise((r) => setTimeout(r, 1500));
-            continue;
-          }
-          break;
-        }
-
-        if (!response.ok) {
-          const errText = await response.text().catch(() => '');
-          lastError = `HTTP ${response.status} (${model}): ${errText.slice(0, 110)}`;
-          if ([400, 404, 500, 503].includes(response.status)) {
-            break;
-          }
-          return { ok: false, results: [], error: lastError };
-        }
-
-        const result = await response.json();
-        const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-        const parsedArray = parseForgivingJsonResults(rawText);
-
-        if (Array.isArray(parsedArray)) {
-          return { ok: true, results: parsedArray, error: '' };
-        }
-        lastError = `응답 JSON 파싱 실패 (${model})`;
-        break;
-      } catch (err) {
-        lastError = `네트워크 오류 (${model}): ${err.message}`;
-        if (retry === 0) {
-          await new Promise((r) => setTimeout(r, 800));
-          continue;
-        }
-      }
-    }
-  }
-
-  return { ok: false, results: [], error: lastError || '알 수 없는 API 오류가 발생했습니다.' };
-}
-
-const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
+import {
+  TrendingUp,
+  Building2,
+  Package,
+  Search,
+  Plus,
+  Filter,
+  Fish,
+  Anchor,
+  AlertTriangle,
+  CheckCircle2,
+  Phone,
+  X,
+  RefreshCw,
+  Sparkles,
+  ExternalLink,
+  MessageSquareText,
+  Check,
+  Radio,
+  FileSpreadsheet,
+  Upload,
+  Globe,
+  MapPin,
+  Loader2,
+  BookOpen,
+  Lock,
+  KeyRound,
+  ShieldCheck,
+  Cloud,
+  RotateCcw,
+  Database,
+  Instagram,
+} from './components/Icons';
+import WeatherSection from './components/WeatherSection';
+import AuctionSection from './components/AuctionSection';
+import TopIngredientsSection from './components/TopIngredientsSection';
+import PartnerTableSection from './components/PartnerTableSection';
+import Modals from './components/Modals';
+import {
+  APP_ID,
+  APP_VERSION,
+  DEFAULT_MASTER_PIN,
+  DEFAULT_SUPABASE_URL,
+  DEFAULT_SUPABASE_ANON_KEY,
+  INITIAL_SPECIES_DATA,
+  INITIAL_PARTNERS,
+  INITIAL_SNS_FEEDS,
+  isLegacySpeciesMap,
+  formatNumber,
+  formatDateTimeKST,
+} from './constants/initialData';
+import {
+  buildRegionCompanyQuery,
+  openInstagramSearchInApp,
+  parseXlsxNatively,
+  inferPartnerMetadata,
+  parseSnsPostText,
+} from './utils/excelParser';
+import {
+  buildSupabaseHeaders,
+  searchPartnerWebAndMenus,
+  fetchSpeciesAuctionTrend,
+  searchBatchMainIngredients,
+} from './utils/apiService';
 
 export default function App() {
   const [isDataLoaded, setIsDataLoaded] = useState(false);
@@ -1151,7 +80,7 @@ export default function App() {
   const [diagResults, setDiagResults] = useState(null);
   const [isRunningDiag, setIsRunningDiag] = useState(false);
 
-  // [v3.0 마스터 PIN 보안] 신규 기기에서도 절대 '새 비밀번호 생성' 화면이 열리지 않도록 기본 마스터 PIN으로 초기화
+  // 마스터 PIN 보안 게이트 상태
   const [savedPin, setSavedPin] = useState(DEFAULT_MASTER_PIN);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [currentPinForChange, setCurrentPinForChange] = useState('');
@@ -1160,6 +89,7 @@ export default function App() {
   const [pinError, setPinError] = useState('');
   const [isChangingPin, setIsChangingPin] = useState(false);
 
+  // 기상 · 위판 시세 상태
   const [selectedSea, setSelectedSea] = useState('busan');
   const [windyOverlay, setWindyOverlay] = useState('wind');
   const [speciesData, setSpeciesData] = useState(INITIAL_SPECIES_DATA);
@@ -1168,6 +98,7 @@ export default function App() {
   const [speciesSearchInput, setSpeciesSearchInput] = useState('');
   const [isSearchingSpecies, setIsSearchingSpecies] = useState(false);
 
+  // 거래업체 · 검색 · 페이지네이션 상태
   const [partners, setPartners] = useState(INITIAL_PARTNERS);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('전체');
@@ -1179,7 +110,7 @@ export default function App() {
   const [isBatchSearching, setIsBatchSearching] = useState(false);
   const [selectedPartnerDetail, setSelectedPartnerDetail] = useState(null);
 
-  // [v3.2] 전체 등록 거래처 인기 메인재료 TOP 5 (확인 모달 통과 후에만 실행)
+  // 인기 메인재료 TOP 5 상태
   const [topIngredientsState, setTopIngredientsState] = useState({
     items: [],
     updatedAt: '',
@@ -1197,11 +128,13 @@ export default function App() {
   });
   const cancelIngredientSearchRef = useRef(false);
 
+  // SNS 피드 상태
   const [snsFeeds, setSnsFeeds] = useState(INITIAL_SNS_FEEDS);
   const [isSyncingSns, setIsSyncingSns] = useState(false);
   const [snsInputCompany, setSnsInputCompany] = useState('');
   const [snsInputText, setSnsInputText] = useState('');
 
+  // 모달 · 엑셀 업로드 상태
   const [activeModal, setActiveModal] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
   const [excelPreviewRows, setExcelPreviewRows] = useState([]);
@@ -1238,31 +171,16 @@ export default function App() {
     setTimeout(() => setToastMessage(''), 4000);
   };
 
-  // Supabase 공통 헤더 빌더 (public 스키마 고정으로 graphql_public 충돌 원천 방지)
-  const buildSupabaseHeaders = (cleanKey, extra = {}) => {
-    const headers = {
-      apikey: cleanKey,
-      Accept: 'application/json',
-      'Accept-Profile': 'public',
-      'Content-Profile': 'public',
-      ...extra,
-    };
-    if (cleanKey.startsWith('eyJ')) {
-      headers.Authorization = `Bearer ${cleanKey}`;
-    }
-    return headers;
-  };
-
   useEffect(() => {
     let loadedSbUrl = DEFAULT_SUPABASE_URL;
     let loadedSbKey = DEFAULT_SUPABASE_ANON_KEY;
     try {
-      const localPin = localStorage.getItem(`${appId}_pin`);
-      const localPartners = localStorage.getItem(`${appId}_partners`);
-      const localSpecies = localStorage.getItem(`${appId}_species`);
-      const localFeeds = localStorage.getItem(`${appId}_feeds`);
-      const localTopIngredients = localStorage.getItem(`${appId}_top_ingredients`);
-      const localSb = localStorage.getItem(`${appId}_supabase`);
+      const localPin = localStorage.getItem(`${APP_ID}_pin`);
+      const localPartners = localStorage.getItem(`${APP_ID}_partners`);
+      const localSpecies = localStorage.getItem(`${APP_ID}_species`);
+      const localFeeds = localStorage.getItem(`${APP_ID}_feeds`);
+      const localTopIngredients = localStorage.getItem(`${APP_ID}_top_ingredients`);
+      const localSb = localStorage.getItem(`${APP_ID}_supabase`);
 
       if (localSb) {
         const parsedSb = JSON.parse(localSb);
@@ -1280,7 +198,7 @@ export default function App() {
         setSupabaseForm(normalizedSb);
       } else {
         localStorage.setItem(
-          `${appId}_supabase`,
+          `${APP_ID}_supabase`,
           JSON.stringify({
             url: DEFAULT_SUPABASE_URL,
             anonKey: DEFAULT_SUPABASE_ANON_KEY,
@@ -1309,7 +227,7 @@ export default function App() {
         } else {
           setSpeciesData(INITIAL_SPECIES_DATA);
           setSelectedSpecies('삼치');
-          localStorage.setItem(`${appId}_species`, JSON.stringify(INITIAL_SPECIES_DATA));
+          localStorage.setItem(`${APP_ID}_species`, JSON.stringify(INITIAL_SPECIES_DATA));
         }
       }
       if (localFeeds) setSnsFeeds(JSON.parse(localFeeds));
@@ -1351,44 +269,41 @@ export default function App() {
         if (remote.pin && /^\d{4}$/.test(String(remote.pin))) {
           const verifiedPin = String(remote.pin);
           setSavedPin(verifiedPin);
-          localStorage.setItem(`${appId}_pin`, verifiedPin);
+          localStorage.setItem(`${APP_ID}_pin`, verifiedPin);
         }
         if (Array.isArray(remote.partners)) {
           setPartners(remote.partners);
-          localStorage.setItem(`${appId}_partners`, JSON.stringify(remote.partners));
+          localStorage.setItem(`${APP_ID}_partners`, JSON.stringify(remote.partners));
           if (remote.partners.length > 0) {
             setSnsInputCompany((prev) => prev || remote.partners[0].companyName);
           }
         }
         if (remote.speciesData && !isLegacySpeciesMap(remote.speciesData)) {
           setSpeciesData(remote.speciesData);
-          localStorage.setItem(`${appId}_species`, JSON.stringify(remote.speciesData));
+          localStorage.setItem(`${APP_ID}_species`, JSON.stringify(remote.speciesData));
           if (!remote.speciesData[selectedSpecies]) {
             setSelectedSpecies(Object.keys(remote.speciesData)[0]);
           }
         } else {
           setSpeciesData(INITIAL_SPECIES_DATA);
           setSelectedSpecies('삼치');
-          localStorage.setItem(`${appId}_species`, JSON.stringify(INITIAL_SPECIES_DATA));
+          localStorage.setItem(`${APP_ID}_species`, JSON.stringify(INITIAL_SPECIES_DATA));
         }
         if (remote.geminiKey) {
           setSupabaseConfig((prev) => {
             const next = { ...prev, geminiKey: remote.geminiKey };
-            localStorage.setItem(`${appId}_supabase`, JSON.stringify(next));
+            localStorage.setItem(`${APP_ID}_supabase`, JSON.stringify(next));
             return next;
           });
           setSupabaseForm((prev) => ({ ...prev, geminiKey: remote.geminiKey }));
         }
         if (Array.isArray(remote.snsFeeds)) {
           setSnsFeeds(remote.snsFeeds);
-          localStorage.setItem(`${appId}_feeds`, JSON.stringify(remote.snsFeeds));
+          localStorage.setItem(`${APP_ID}_feeds`, JSON.stringify(remote.snsFeeds));
         }
         if (remote.topIngredients && Array.isArray(remote.topIngredients.items)) {
           setTopIngredientsState(remote.topIngredients);
-          localStorage.setItem(
-            `${appId}_top_ingredients`,
-            JSON.stringify(remote.topIngredients)
-          );
+          localStorage.setItem(`${APP_ID}_top_ingredients`, JSON.stringify(remote.topIngredients));
         }
       }
       setSyncStatus('PC·모바일 실시간 동기화됨');
@@ -1408,11 +323,11 @@ export default function App() {
     const activeSb = overrides.supabaseConfig || supabaseConfig;
 
     try {
-      if (nextPin) localStorage.setItem(`${appId}_pin`, nextPin);
-      localStorage.setItem(`${appId}_partners`, JSON.stringify(nextPartners));
-      localStorage.setItem(`${appId}_species`, JSON.stringify(nextSpecies));
-      localStorage.setItem(`${appId}_feeds`, JSON.stringify(nextFeeds));
-      localStorage.setItem(`${appId}_top_ingredients`, JSON.stringify(nextTopIngredients));
+      if (nextPin) localStorage.setItem(`${APP_ID}_pin`, nextPin);
+      localStorage.setItem(`${APP_ID}_partners`, JSON.stringify(nextPartners));
+      localStorage.setItem(`${APP_ID}_species`, JSON.stringify(nextSpecies));
+      localStorage.setItem(`${APP_ID}_feeds`, JSON.stringify(nextFeeds));
+      localStorage.setItem(`${APP_ID}_top_ingredients`, JSON.stringify(nextTopIngredients));
     } catch (e) {
       console.warn('로컬 저장 오류:', e);
     }
@@ -1478,7 +393,6 @@ export default function App() {
     setSyncStatus('브라우저 자동 저장됨');
   };
 
-  // Supabase 읽기/쓰기(public 스키마 명시) 및 최신 AQ. Gemini API 키 자체 연결 진단 테스트
   const handleRunConnectionDiagnostics = async () => {
     setIsRunningDiag(true);
     const cleanUrl = (supabaseForm.url || '')
@@ -1494,7 +408,6 @@ export default function App() {
       gemini: { ok: false, detail: '미실행' },
     };
 
-    // 1. Supabase 읽기 테스트
     if (!cleanUrl || !cleanSbKey) {
       results.sbRead = { ok: false, detail: 'URL 또는 Anon Key가 비어 있습니다.' };
     } else {
@@ -1514,7 +427,6 @@ export default function App() {
       }
     }
 
-    // 2. Supabase 쓰기 테스트
     if (!cleanUrl || !cleanSbKey) {
       results.sbWrite = { ok: false, detail: 'URL 또는 Anon Key가 비어 있습니다.' };
     } else {
@@ -1550,7 +462,6 @@ export default function App() {
       }
     }
 
-    // 3. Gemini API 키 (신규 AQ. 키 및 기존 AIza 키) 테스트
     if (!cleanGeminiKey) {
       results.gemini = { ok: false, detail: 'Gemini API 키가 입력되지 않았습니다.' };
     } else {
@@ -1587,7 +498,7 @@ export default function App() {
       geminiKey: (supabaseForm.geminiKey || '').trim(),
     };
     setSupabaseConfig(trimmed);
-    localStorage.setItem(`${appId}_supabase`, JSON.stringify(trimmed));
+    localStorage.setItem(`${APP_ID}_supabase`, JSON.stringify(trimmed));
     setActiveModal(null);
 
     if (trimmed.url && trimmed.anonKey) {
@@ -1620,11 +531,9 @@ export default function App() {
     setPinError('');
   };
 
-  // [v3.0 마스터 PIN 검증 및 변경 핸들러]
   const handlePinSubmit = async (e) => {
     e.preventDefault();
 
-    // 1. 잠금 해제된 관리자가 [PIN 변경] 모드일 때만 현재 PIN 검증 후 새 PIN 저장 허용
     if (isUnlocked && isChangingPin) {
       if (currentPinForChange !== savedPin) {
         setPinError('현재 4자리 비밀번호(PIN)가 일치하지 않습니다.');
@@ -1649,7 +558,6 @@ export default function App() {
       return;
     }
 
-    // 2. 잠금 화면: 신규 기기 포함 모든 환경에서 마스터 PIN 일치 여부만 검증 (임의 생성 불가)
     if (pinInput.length !== 4 || !/^\d{4}$/.test(pinInput)) {
       setPinError('4자리 숫자를 정확히 입력해주세요.');
       return;
@@ -1687,14 +595,6 @@ export default function App() {
     showToast('등록된 거래업체 목록이 모두 깨끗하게 비워졌습니다.');
   };
 
-  const currentWeather = INITIAL_WEATHER_DATA[selectedSea];
-  const windyEmbedUrl = `https://embed.windy.com/embed2.html?lat=${currentWeather.lat}&lon=${currentWeather.lon}&detailLat=${currentWeather.lat}&detailLon=${currentWeather.lon}&width=650&height=450&zoom=${currentWeather.zoom}&level=surface&overlay=${windyOverlay}&product=ecmwf&menu=&message=true&marker=true&calendar=now&pressure=&type=map&location=coordinates&detail=&metricWind=m%2Fs&metricTemp=%C2%B0C&radarRange=-1`;
-
-  const currentSpecies =
-    speciesData[selectedSpecies] || Object.values(speciesData)[0] || INITIAL_SPECIES_DATA['삼치'];
-  const chartData =
-    chartPeriod === '7d' ? currentSpecies.history7d : currentSpecies.history30d;
-
   const handleSearchAndAddSpecies = async (e) => {
     e.preventDefault();
     const keyword = speciesSearchInput.trim();
@@ -1731,7 +631,6 @@ export default function App() {
     }
   };
 
-  // [v3.2 개선] 5개사씩 배치 서치 · 모델 폴백 · 429 재시도 · 중단 지원 · 오류 표시
   const handleRunTopIngredientsSearch = async () => {
     if (isSearchingTopIngredients) return;
     if (partners.length === 0) {
@@ -1815,7 +714,6 @@ export default function App() {
 
           let rawIngredients = byIdx.has(localIdx) ? byIdx.get(localIdx) : byName.get(normName);
 
-          // 이름이 부분 일치하는 경우도 보조 매칭
           if (!Array.isArray(rawIngredients)) {
             for (const [k, v] of byName.entries()) {
               if (k && normName && (k.includes(normName) || normName.includes(k))) {
@@ -1825,7 +723,6 @@ export default function App() {
             }
           }
 
-          // 한 업체 내 동일 재료는 중복 제거(업체당 1회 집계)
           const validIngredients = Array.isArray(rawIngredients)
             ? Array.from(
                 new Set(
@@ -1965,8 +862,7 @@ export default function App() {
   }, [filteredPartners, currentPage, totalPages]);
 
   const kpiSummary = useMemo(() => {
-    const topItem =
-      topIngredientsState.items[0] || { name: '서치 대기', count: 0, share: '0' };
+    const topItem = topIngredientsState.items[0] || { name: '서치 대기', count: 0, share: '0' };
     const allSpecies = Object.values(speciesData);
     const avgChange = (
       allSpecies.reduce((acc, s) => acc + s.prevDiffRate, 0) / allSpecies.length
@@ -2474,7 +1370,7 @@ export default function App() {
     showToast(`${targetSpecies} (${newAuctionForm.market}) 오늘의 위판 시세가 반영되었습니다.`);
   };
 
-  // [보안 게이트] 미인증 상태에서는 오직 4자리 마스터 PIN 입력 화면만 노출 (신규 기기 임의 생성 원천 차단)
+  // 보안 게이트 화면
   if (!isUnlocked || (isUnlocked && isChangingPin)) {
     const isChangeMode = isUnlocked && isChangingPin;
     return (
@@ -2489,7 +1385,7 @@ export default function App() {
               )}
             </div>
             <div className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-white/15 text-sky-100 border border-white/20 mb-2">
-              v3.2 · 메인재료 서치 수정·확인창판
+              {APP_VERSION}
             </div>
             <h1 className="text-xl font-bold tracking-tight">수산물 종합 유통·시세 대시보드</h1>
             <p className="text-xs text-sky-100 mt-1">
@@ -2636,7 +1532,7 @@ export default function App() {
                   수산물 종합 유통·시세 대시보드
                 </h1>
                 <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                  v3.2 · 메인재료 서치 수정·확인창판
+                  {APP_VERSION}
                 </span>
               </div>
               <div className="flex items-center gap-2 text-xs text-slate-500">
@@ -2650,7 +1546,6 @@ export default function App() {
                       ? 'text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100'
                       : 'text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100'
                   }`}
-                  title="PC와 모바일 간 실시간 데이터 동기화 및 AI API 키 설정"
                 >
                   <Cloud className="w-3 h-3" />
                   {syncStatus}
@@ -2667,7 +1562,6 @@ export default function App() {
                   ? 'text-sky-700 bg-sky-50 border-sky-200 hover:bg-sky-100'
                   : 'text-slate-600 bg-white border-slate-200 hover:bg-slate-50'
               }`}
-              title="PC·모바일 실시간 동기화 및 AI API 키 설정"
             >
               <Database className="w-3.5 h-3.5 text-sky-600" />
               <span className="hidden md:inline">동기화 · AI키 설정</span>
@@ -2704,7 +1598,6 @@ export default function App() {
                 setPinConfirmInput('');
                 setPinError('');
               }}
-              title="개인 PIN 비밀번호 변경"
               className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
             >
               <KeyRound className="w-3.5 h-3.5" />
@@ -2712,7 +1605,6 @@ export default function App() {
             </button>
             <button
               onClick={handleLockScreen}
-              title="즉시 화면 잠금"
               className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer"
             >
               <Lock className="w-3.5 h-3.5" />
@@ -2724,152 +1616,12 @@ export default function App() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
         {/* 1. Windy 실시간 해상 기상 섹션 */}
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="px-5 py-3.5 bg-gradient-to-r from-slate-900 via-sky-950 to-slate-900 text-white flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <Waves className="w-5 h-5 text-sky-400" />
-              <span className="font-bold text-sm sm:text-base">
-                Windy.com 실시간 해상 기상 및 조업 여건
-              </span>
-              <span className="text-xs text-sky-300 hidden sm:inline">
-                ({currentWeather.updatedAt})
-              </span>
-            </div>
-
-            <div className="flex items-center gap-1.5 bg-white/10 p-1 rounded-xl flex-wrap">
-              {Object.values(INITIAL_WEATHER_DATA).map((sea) => (
-                <button
-                  key={sea.id}
-                  onClick={() => setSelectedSea(sea.id)}
-                  className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                    selectedSea === sea.id
-                      ? 'bg-sky-500 text-white shadow-xs'
-                      : 'text-slate-300 hover:text-white hover:bg-white/10'
-                  }`}
-                >
-                  {sea.name}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12">
-            <div className="lg:col-span-7 relative bg-slate-900 min-h-[300px] sm:min-h-[340px] border-b lg:border-b-0 lg:border-r border-slate-200">
-              <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-slate-900/85 backdrop-blur px-2 py-1.5 rounded-xl border border-slate-700 shadow-md">
-                <Layers className="w-3.5 h-3.5 text-sky-400 mr-1" />
-                {[
-                  { id: 'wind', label: '바람' },
-                  { id: 'waves', label: '파도' },
-                  { id: 'temp', label: '기온' },
-                  { id: 'pressure', label: '기압' },
-                ].map((layer) => (
-                  <button
-                    key={layer.id}
-                    onClick={() => setWindyOverlay(layer.id)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
-                      windyOverlay === layer.id
-                        ? 'bg-sky-500 text-white'
-                        : 'text-slate-300 hover:bg-white/10'
-                    }`}
-                  >
-                    {layer.label}
-                  </button>
-                ))}
-              </div>
-
-              <iframe
-                title={`Windy 해상 기상 - ${currentWeather.name}`}
-                src={windyEmbedUrl}
-                className="w-full h-full min-h-[300px] sm:min-h-[340px] border-0"
-                loading="lazy"
-              />
-            </div>
-
-            <div className="lg:col-span-5 p-5 flex flex-col justify-between bg-white">
-              <div>
-                <div className="flex items-center justify-between mb-4">
-                  <div>
-                    <span className="text-xs font-semibold text-sky-600">선택 해역 브리핑</span>
-                    <h3 className="text-lg font-bold text-slate-900">{currentWeather.name}</h3>
-                  </div>
-
-                  {currentWeather.statusType === 'good' && (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      {currentWeather.status}
-                    </span>
-                  )}
-                  {currentWeather.statusType === 'caution' && (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      {currentWeather.status}
-                    </span>
-                  )}
-                  {currentWeather.statusType === 'warning' && (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200">
-                      <AlertTriangle className="w-3.5 h-3.5" />
-                      {currentWeather.status}
-                    </span>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 mb-4">
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1">
-                      <Thermometer className="w-3.5 h-3.5 text-rose-500" />
-                      <span>기온 / 표층 수온</span>
-                    </div>
-                    <div className="text-base font-bold text-slate-900">
-                      {currentWeather.airTemp}°C{' '}
-                      <span className="text-xs font-semibold text-sky-600">
-                        / 수온 {currentWeather.waterTemp}°C
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100">
-                    <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1">
-                      <Wind className="w-3.5 h-3.5 text-teal-600" />
-                      <span>풍속 및 풍향</span>
-                    </div>
-                    <div className="text-base font-bold text-slate-900">
-                      {currentWeather.windSpeed} m/s{' '}
-                      <span className="text-xs font-normal text-slate-500">
-                        ({currentWeather.windDir})
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 col-span-2 flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-0.5">
-                        <Compass className="w-3.5 h-3.5 text-indigo-600" />
-                        <span>유의 파고 (물결 높이)</span>
-                      </div>
-                      <div className="text-base font-bold text-slate-900">
-                        {currentWeather.waveHeight} m
-                      </div>
-                    </div>
-                    <a
-                      href={`https://www.windy.com/${currentWeather.lat}/${currentWeather.lon}?${windyOverlay},${currentWeather.lat},${currentWeather.lon},${currentWeather.zoom}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-sky-600 hover:text-sky-700 bg-sky-50 px-3 py-1.5 rounded-lg border border-sky-200"
-                    >
-                      Windy 크게 보기
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-sky-50/70 border border-sky-100 text-xs text-slate-700 leading-relaxed">
-                <span className="font-bold text-sky-800 mr-1.5">[조업 가이드]</span>
-                {currentWeather.summary}
-              </div>
-            </div>
-          </div>
-        </section>
+        <WeatherSection
+          selectedSea={selectedSea}
+          setSelectedSea={setSelectedSea}
+          windyOverlay={windyOverlay}
+          setWindyOverlay={setWindyOverlay}
+        />
 
         {/* 2. 상단 KPI 요약 카드 4종 */}
         <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -2908,9 +1660,7 @@ export default function App() {
               </span>
               <span className="text-xs font-medium text-slate-500">전일 위판가 대비</span>
             </div>
-            <p className="text-xs text-slate-500 mt-1.5">
-              삼치(+6.2%) · 금태(+4.5%) 강세 지속
-            </p>
+            <p className="text-xs text-slate-500 mt-1.5">삼치(+6.2%) · 금태(+4.5%) 강세 지속</p>
           </div>
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
@@ -2953,343 +1703,18 @@ export default function App() {
         </section>
 
         {/* 3. 위판장 판매 어종 및 가격 추이 섹션 */}
-        <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <BarChart3 className="w-5 h-5 text-sky-600" />
-                <h2 className="text-lg font-bold text-slate-900">
-                  위판장 판매 어종 및 가격 추이
-                </h2>
-                <button
-                  onClick={handleResetSpeciesToDefault}
-                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-slate-500 hover:text-sky-700 bg-slate-100 hover:bg-sky-50 border border-slate-200 transition-colors cursor-pointer"
-                  title="기본 4종(삼치·금태·고등어·전갱이)으로 초기화"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                  기본 4종 초기화
-                </button>
-              </div>
-              <p className="text-xs text-slate-500 mt-1">
-                기본 어종(삼치·금태·고등어·전갱이) 외 원하는 어종을 검색해 시세 추이를 추가할 수 있습니다.
-              </p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
-              <form onSubmit={handleSearchAndAddSpecies} className="flex items-center gap-1.5">
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="어종 추가 검색 (예: 대방어, 갈치)"
-                    value={speciesSearchInput}
-                    onChange={(e) => setSpeciesSearchInput(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white w-48 sm:w-52"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={isSearchingSpecies || !speciesSearchInput.trim()}
-                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl text-xs font-semibold bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-50 cursor-pointer shrink-0"
-                >
-                  {isSearchingSpecies ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Plus className="w-3.5 h-3.5" />
-                  )}
-                  {isSearchingSpecies ? '조회중' : '어종 추가'}
-                </button>
-              </form>
-
-              <div className="flex flex-wrap items-center gap-1.5">
-                {Object.keys(speciesData).map((sp) => {
-                  const rate = speciesData[sp].prevDiffRate;
-                  const isSelected = selectedSpecies === sp;
-                  return (
-                    <button
-                      key={sp}
-                      onClick={() => setSelectedSpecies(sp)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
-                        isSelected
-                          ? 'bg-sky-600 text-white border-sky-600 shadow-xs'
-                          : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      <span>{sp}</span>
-                      <span
-                        className={`text-[11px] ${
-                          isSelected
-                            ? 'text-sky-100'
-                            : rate >= 0
-                            ? 'text-rose-600'
-                            : 'text-blue-600'
-                        }`}
-                      >
-                        {rate >= 0 ? `▲${rate}%` : `▼${Math.abs(rate)}%`}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 pt-6">
-            <div className="lg:col-span-7 flex flex-col justify-between bg-slate-50/70 rounded-xl p-4 border border-slate-100">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-base font-bold text-slate-900">
-                      {currentSpecies.name} 평균 위판가
-                    </span>
-                    <span className="text-xs text-slate-500 bg-white px-2 py-0.5 rounded border border-slate-200">
-                      {currentSpecies.grade}
-                    </span>
-                  </div>
-                  <div className="flex items-baseline gap-2.5 mt-1">
-                    <span className="text-2xl font-extrabold text-sky-700">
-                      {formatNumber(currentSpecies.currentAvg)}
-                    </span>
-                    <span className="text-xs font-medium text-slate-500">
-                      {currentSpecies.unit}
-                    </span>
-                    <span
-                      className={`inline-flex items-center text-xs font-bold px-2 py-0.5 rounded-full ${
-                        currentSpecies.prevDiffRate >= 0
-                          ? 'bg-rose-50 text-rose-600'
-                          : 'bg-blue-50 text-blue-600'
-                      }`}
-                    >
-                      {currentSpecies.prevDiffRate >= 0 ? (
-                        <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
-                      ) : (
-                        <ArrowDownRight className="w-3.5 h-3.5 mr-0.5" />
-                      )}
-                      {Math.abs(currentSpecies.prevDiffRate)}%
-                    </span>
-                  </div>
-                </div>
-
-                <div className="inline-flex rounded-lg bg-slate-200/70 p-0.5">
-                  <button
-                    onClick={() => setChartPeriod('7d')}
-                    className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                      chartPeriod === '7d'
-                        ? 'bg-white text-slate-900 shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    최근 7일
-                  </button>
-                  <button
-                    onClick={() => setChartPeriod('30d')}
-                    className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                      chartPeriod === '30d'
-                        ? 'bg-white text-slate-900 shadow-2xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    최근 30일
-                  </button>
-                </div>
-              </div>
-
-              <div className="h-64 w-full bg-white rounded-xl border border-slate-100 p-3 flex flex-col justify-between">
-                {(() => {
-                  const pts = chartData || [];
-                  const prices = pts.map((d) => Number(d.price) || 0);
-                  const minVal = prices.length ? Math.min(...prices) : 0;
-                  const maxVal = prices.length ? Math.max(...prices) : 100;
-                  const pad = Math.max(Math.round((maxVal - minVal) * 0.2), 500);
-                  const yMin = Math.max(0, minVal - pad);
-                  const yMax = maxVal + pad;
-                  const range = Math.max(1, yMax - yMin);
-                  const w = 560;
-                  const h = 180;
-                  const padL = 56;
-                  const padR = 16;
-                  const padT = 16;
-                  const padB = 26;
-                  const plotW = w - padL - padR;
-                  const plotH = h - padT - padB;
-
-                  const coords = pts.map((d, idx) => {
-                    const x =
-                      padL +
-                      (pts.length <= 1 ? plotW / 2 : (idx / (pts.length - 1)) * plotW);
-                    const y =
-                      padT + plotH - (((Number(d.price) || 0) - yMin) / range) * plotH;
-                    return { x, y, date: d.date, price: Number(d.price) || 0 };
-                  });
-
-                  const linePath = coords
-                    .map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`)
-                    .join(' ');
-                  const areaPath =
-                    coords.length > 0
-                      ? `${linePath} L ${coords[coords.length - 1].x.toFixed(1)} ${(
-                          padT + plotH
-                        ).toFixed(1)} L ${coords[0].x.toFixed(1)} ${(padT + plotH).toFixed(1)} Z`
-                      : '';
-
-                  const yTicks = [yMax, Math.round((yMax + yMin) / 2), yMin];
-
-                  return (
-                    <svg
-                      viewBox={`0 0 ${w} ${h}`}
-                      className="w-full h-full overflow-visible"
-                      role="img"
-                      aria-label={`${currentSpecies.name} 가격 추이 차트`}
-                    >
-                      <defs>
-                        <linearGradient id="priceAreaGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#0284c7" stopOpacity="0.26" />
-                          <stop offset="100%" stopColor="#0284c7" stopOpacity="0.01" />
-                        </linearGradient>
-                      </defs>
-
-                      {yTicks.map((val, idx) => {
-                        const ty = padT + (idx / 2) * plotH;
-                        return (
-                          <g key={idx}>
-                            <line
-                              x1={padL}
-                              y1={ty}
-                              x2={w - padR}
-                              y2={ty}
-                              stroke="#e2e8f0"
-                              strokeDasharray="3 3"
-                            />
-                            <text
-                              x={padL - 8}
-                              y={ty + 4}
-                              textAnchor="end"
-                              fill="#64748b"
-                              fontSize="10"
-                            >
-                              {formatNumber(val)}
-                            </text>
-                          </g>
-                        );
-                      })}
-
-                      {areaPath && <path d={areaPath} fill="url(#priceAreaGrad)" />}
-                      {linePath && (
-                        <path
-                          d={linePath}
-                          fill="none"
-                          stroke="#0284c7"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      )}
-
-                      {coords.map((c, idx) => (
-                        <g key={idx}>
-                          <circle
-                            cx={c.x}
-                            cy={c.y}
-                            r="4"
-                            fill="#ffffff"
-                            stroke="#0284c7"
-                            strokeWidth="2.5"
-                          />
-                          <text
-                            x={c.x}
-                            y={c.y - 8}
-                            textAnchor="middle"
-                            fill="#0f172a"
-                            fontSize="9.5"
-                            fontWeight="600"
-                          >
-                            {formatNumber(c.price)}
-                          </text>
-                          <text
-                            x={c.x}
-                            y={h - 6}
-                            textAnchor="middle"
-                            fill="#64748b"
-                            fontSize="10.5"
-                          >
-                            {c.date}
-                          </text>
-                        </g>
-                      ))}
-                    </svg>
-                  );
-                })()}
-              </div>
-            </div>
-
-            <div className="lg:col-span-5 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-bold text-slate-800">
-                    주요 위판장별 당일 낙찰 시세
-                  </h3>
-                  <span className="text-xs text-slate-400">단위: {currentSpecies.unit}</span>
-                </div>
-
-                <div className="overflow-hidden rounded-xl border border-slate-200">
-                  <table className="w-full text-left border-collapse">
-                    <thead>
-                      <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
-                        <th className="py-2.5 px-3.5">위판장명</th>
-                        <th className="py-2.5 px-3 text-right">당일 시세</th>
-                        <th className="py-2.5 px-3 text-right">전일 대비</th>
-                        <th className="py-2.5 px-3.5 text-center">동향</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 text-xs">
-                      {currentSpecies.markets.map((m, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="py-3 px-3.5">
-                            <div className="font-semibold text-slate-800">{m.market}</div>
-                            <div className="text-[11px] text-slate-400">물량 {m.volume}</div>
-                          </td>
-                          <td className="py-3 px-3 text-right font-bold text-slate-900">
-                            {formatNumber(m.price)}원
-                          </td>
-                          <td
-                            className={`py-3 px-3 text-right font-semibold ${
-                              m.diff >= 0 ? 'text-rose-600' : 'text-blue-600'
-                            }`}
-                          >
-                            {m.diff >= 0 ? `+${formatNumber(m.diff)}` : formatNumber(m.diff)}
-                          </td>
-                          <td className="py-3 px-3.5 text-center">
-                            <span
-                              className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                                m.status === '급등' || m.status === '강세'
-                                  ? 'bg-rose-50 text-rose-700'
-                                  : m.status === '상승'
-                                  ? 'bg-amber-50 text-amber-700'
-                                  : m.status === '보합'
-                                  ? 'bg-slate-100 text-slate-600'
-                                  : 'bg-blue-50 text-blue-700'
-                              }`}
-                            >
-                              {m.status}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="mt-4 p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/70 flex items-start gap-2.5">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-900 leading-relaxed">
-                  <strong>매입 참고:</strong> 상단 <strong>[위판 시세]</strong> 버튼을 누르면
-                  새로 추가한 어종의 당일 낙찰가와 물량도 직접 업데이트할 수 있습니다.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
+        <AuctionSection
+          speciesData={speciesData}
+          selectedSpecies={selectedSpecies}
+          setSelectedSpecies={setSelectedSpecies}
+          chartPeriod={chartPeriod}
+          setChartPeriod={setChartPeriod}
+          speciesSearchInput={speciesSearchInput}
+          setSpeciesSearchInput={setSpeciesSearchInput}
+          isSearchingSpecies={isSearchingSpecies}
+          onSearchAndAddSpecies={handleSearchAndAddSpecies}
+          onResetSpeciesToDefault={handleResetSpeciesToDefault}
+        />
 
         {/* 4. 등록 거래업체 SNS 자동 수집 및 AI 단가·입고 정리 섹션 */}
         <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
@@ -3463,1430 +1888,74 @@ export default function App() {
 
         {/* 5. 전체 등록 거래처 인기 메인재료 TOP 5 & 거래처 관리 섹션 */}
         <section className="space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-base font-bold text-slate-900">
-                    전체 등록 거래처 인기 메인재료 TOP 5
-                  </h2>
-                  {topIngredientsState.updatedAt && (
-                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                      <CheckCircle2 className="w-3 h-3" />
-                      갱신: {topIngredientsState.updatedAt}
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  등록 거래처의 네이버 메뉴·리뷰에서 음식명이 아닌 <strong>메인 원재료</strong>만 AI 서치해 빈도 TOP 5를 산출합니다. (버튼 클릭 시에만 갱신 · 확인 불가 재료 생략)
-                </p>
-              </div>
+          <TopIngredientsSection
+            topIngredientsState={topIngredientsState}
+            isSearchingTopIngredients={isSearchingTopIngredients}
+            ingredientSearchProgress={ingredientSearchProgress}
+            partnersCount={partners.length}
+            onOpenConfirmModal={() => setActiveModal('confirmTopIngredients')}
+            onCancelSearch={() => {
+              cancelIngredientSearchRef.current = true;
+            }}
+            onOpenCloudModal={() => setActiveModal('cloud')}
+          />
 
-              <button
-                onClick={() => setActiveModal('confirmTopIngredients')}
-                disabled={isSearchingTopIngredients || partners.length === 0}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-sky-600 hover:bg-sky-700 text-white shadow-xs transition-colors cursor-pointer disabled:opacity-50 self-start md:self-auto shrink-0"
-              >
-                {isSearchingTopIngredients ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    메인재료 서치 중...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-3.5 h-3.5" />
-                    TOP 5 메인재료 서치
-                  </>
-                )}
-              </button>
-            </div>
-
-            {isSearchingTopIngredients && (
-              <div className="mb-4 p-3.5 rounded-xl bg-sky-50 border border-sky-200 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-bold text-sky-900">
-                  <span className="flex items-center gap-1.5">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-600" />
-                    배치 {ingredientSearchProgress.currentBatch} / {ingredientSearchProgress.totalBatches} 진행 중 (확인 {ingredientSearchProgress.confirmedSoFar}개사
-                    {ingredientSearchProgress.failedBatches > 0
-                      ? ` · 실패 배치 ${ingredientSearchProgress.failedBatches}`
-                      : ''}
-                    )
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <span>
-                      {ingredientSearchProgress.totalBatches > 0
-                        ? Math.round(
-                            (ingredientSearchProgress.currentBatch /
-                              ingredientSearchProgress.totalBatches) *
-                              100
-                          )
-                        : 0}
-                      %
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        cancelIngredientSearchRef.current = true;
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-bold cursor-pointer"
-                    >
-                      중지
-                    </button>
-                  </div>
-                </div>
-                <div className="w-full h-2 bg-sky-200/70 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-sky-600 rounded-full transition-all duration-300"
-                    style={{
-                      width: `${
-                        ingredientSearchProgress.totalBatches > 0
-                          ? Math.round(
-                              (ingredientSearchProgress.currentBatch /
-                                ingredientSearchProgress.totalBatches) *
-                                100
-                            )
-                          : 0
-                      }%`,
-                    }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {topIngredientsState.errorSummary && !isSearchingTopIngredients && (
-              <div className="mb-4 p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                  <div className="space-y-0.5">
-                    <div className="font-bold">AI 서치 중 일부 배치 오류가 감지되었습니다</div>
-                    <div className="text-[11px] font-mono break-all opacity-90">
-                      {topIngredientsState.errorSummary}
-                    </div>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setActiveModal('cloud')}
-                  className="px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-100 text-[11px] font-bold shrink-0 cursor-pointer self-start sm:self-auto"
-                >
-                  API 키 설정 확인
-                </button>
-              </div>
-            )}
-
-            {topIngredientsState.updatedAt && !isSearchingTopIngredients && (
-              <div className="mb-4 px-3.5 py-2.5 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600">
-                <span>
-                  분석 요약: <strong>전체 {topIngredientsState.analyzedCount}개사</strong> 중{' '}
-                  <strong className="text-emerald-700">
-                    확인 {topIngredientsState.confirmedCount}개사
-                  </strong>{' '}
-                  ·{' '}
-                  <strong className="text-slate-500">
-                    확인 불가 {topIngredientsState.omittedCount}개사 생략
-                  </strong>
-                </span>
-                <span className="text-[11px] text-slate-400">
-                  PC·모바일 클라우드 자동 동기화됨
-                </span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-              <div className="lg:col-span-5 h-52 bg-slate-50/70 rounded-xl border border-slate-100 p-3.5 flex flex-col justify-center">
-                {topIngredientsState.items.length === 0 ? (
-                  topIngredientsState.updatedAt ? (
-                    <div className="text-center space-y-2 px-4">
-                      <AlertTriangle className="w-7 h-7 text-amber-500 mx-auto" />
-                      <div className="text-xs font-bold text-slate-700">
-                        확인된 메인 원재료가 없습니다
-                      </div>
-                      <p className="text-[11px] text-slate-500 leading-relaxed">
-                        {topIngredientsState.errorSummary
-                          ? '상단 [동기화 · AI키 설정]에서 Gemini API 키와 연결 테스트를 확인한 뒤 다시 시도해 주세요.'
-                          : '네이버 검색에서 확인 가능한 메뉴·원재료가 추출되지 않았습니다. 개별 업체의 [메뉴 서칭]을 먼저 실행하면 정확도가 높아집니다.'}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="text-center space-y-2 px-4">
-                      <Sparkles className="w-7 h-7 text-sky-500 mx-auto opacity-80" />
-                      <div className="text-xs font-bold text-slate-700">
-                        아직 메인재료 TOP 5 서치가 실행되지 않았습니다
-                      </div>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        우측 상단 <strong>[TOP 5 메인재료 서치]</strong> 버튼을 누르시면 등록된 거래처의 네이버 메뉴·리뷰를 분석해 원재료 TOP 5를 산출합니다.
-                      </p>
-                    </div>
-                  )
-                ) : (
-                  <div className="space-y-2.5">
-                    {(() => {
-                      const maxCnt = Math.max(
-                        1,
-                        ...topIngredientsState.items.map((it) => Number(it.count) || 0)
-                      );
-                      return topIngredientsState.items.map((item, idx) => {
-                        const pct = Math.min(
-                          100,
-                          Math.round(((Number(item.count) || 0) / maxCnt) * 100)
-                        );
-                        const barColor =
-                          idx === 0
-                            ? 'bg-sky-600'
-                            : idx === 1
-                            ? 'bg-sky-500'
-                            : idx === 2
-                            ? 'bg-sky-400'
-                            : 'bg-slate-400';
-                        return (
-                          <div key={item.name} className="space-y-1">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="font-bold text-slate-700">{item.name}</span>
-                              <span className="text-[11px] font-semibold text-slate-500">
-                                {formatNumber(item.count)}개사 ({item.share}%)
-                              </span>
-                            </div>
-                            <div className="w-full h-2.5 bg-slate-200/80 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      });
-                    })()}
-                  </div>
-                )}
-              </div>
-
-              <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
-                {topIngredientsState.items.length === 0 ? (
-                  <div className="sm:col-span-2 md:col-span-3 p-6 rounded-xl border border-dashed border-slate-200 bg-slate-50/40 text-center text-xs text-slate-400">
-                    {topIngredientsState.updatedAt
-                      ? '추출된 원재료 카드가 없습니다. API 키 상태 확인 후 다시 서치해 보세요.'
-                      : '서치 완료 시 상위 5개 메인 원재료와 취급 거래처 수가 이곳에 카드 형태로 정리됩니다.'}
-                  </div>
-                ) : (
-                  topIngredientsState.items.map((item) => (
-                    <div
-                      key={item.name}
-                      className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 flex flex-col justify-between gap-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span
-                            className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold ${
-                              item.rank === 1
-                                ? 'bg-sky-600 text-white'
-                                : item.rank === 2
-                                ? 'bg-sky-100 text-sky-800'
-                                : 'bg-slate-200 text-slate-700'
-                            }`}
-                          >
-                            {item.rank}
-                          </span>
-                          <span className="font-bold text-sm text-slate-800">{item.name}</span>
-                        </div>
-                        <span className="text-[11px] font-bold text-sky-700 bg-sky-100/70 px-1.5 py-0.5 rounded">
-                          {item.share}%
-                        </span>
-                      </div>
-                      <div className="text-xs text-slate-600 font-medium">
-                        확인 거래처 <strong>{item.count}개사</strong>
-                      </div>
-                      {Array.isArray(item.partnerNames) && item.partnerNames.length > 0 && (
-                        <div className="text-[11px] text-slate-400 truncate">
-                          예: {item.partnerNames.slice(0, 2).join(', ')}
-                          {item.partnerNames.length > 2 ? ` 외 ${item.partnerNames.length - 2}곳` : ''}
-                        </div>
-                      )}
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h2 className="text-base sm:text-lg font-bold text-slate-900">
-                    등록 거래업체(발주처) 통합 관리 및 판매 메뉴·SNS 서칭
-                  </h2>
-                  <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-sky-50 text-sky-700 border border-sky-200">
-                    총 {filteredPartners.length}개사
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  인스타·네이버·구글 모두 <strong>[제일 큰 소재지 + 업체명]</strong>으로 검색되며, 메뉴 서칭은 네이버 실제 메뉴판 기준으로 정리됩니다.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                {partners.length > 0 && (
-                  <button
-                    onClick={handleClearAllPartners}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer"
-                    title="기존에 등록된 거래업체 목록을 모두 지우고 비웁니다"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    전체 업체 비우기
-                  </button>
-                )}
-                <button
-                  onClick={handleBatchSearchCurrentPage}
-                  disabled={isBatchSearching || partners.length === 0}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-xl transition-colors cursor-pointer disabled:opacity-60"
-                >
-                  {isBatchSearching ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-3.5 h-3.5" />
-                  )}
-                  {isBatchSearching ? 'AI 메뉴 일괄 서칭 중...' : '현재 목록 AI 메뉴 일괄 서칭'}
-                </button>
-                <button
-                  onClick={() => setActiveModal('excel')}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-xl transition-colors cursor-pointer"
-                >
-                  <Upload className="w-3.5 h-3.5" />
-                  엑셀 일괄 업로드
-                </button>
-              </div>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 mb-4">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="업체명, 대표자, 전화번호, 주소, 5점 리뷰 인기 메뉴 검색..."
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value);
-                    setCurrentPage(1);
-                  }}
-                  className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500 focus:bg-white"
-                />
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <select
-                    value={regionFilter}
-                    onChange={(e) => {
-                      setRegionFilter(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="pl-8 pr-6 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  >
-                    {availableRegions.map((reg) => (
-                      <option key={reg} value={reg}>
-                        {reg === '전체' ? '전체 지역' : reg}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="relative">
-                  <Filter className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                  <select
-                    value={categoryFilter}
-                    onChange={(e) => {
-                      setCategoryFilter(e.target.value);
-                      setCurrentPage(1);
-                    }}
-                    className="pl-8 pr-6 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  >
-                    <option value="전체">전체 품목</option>
-                    {Object.keys(speciesData).map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-
-            {selectedPartnerDetail && (
-              <div className="mb-4 p-4 rounded-xl bg-gradient-to-r from-indigo-50 via-sky-50 to-white border border-indigo-200 flex flex-col md:flex-row md:items-center justify-between gap-3">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-600 text-white">
-                      <Sparkles className="w-3 h-3" />
-                      AI 웹·SNS 서칭 결과
-                    </span>
-                    <span className="font-bold text-sm text-slate-900">
-                      {selectedPartnerDetail.companyName}
-                    </span>
-                    <span className="text-xs text-slate-500">
-                      ({selectedPartnerDetail.address})
-                    </span>
-                  </div>
-                  <p className="text-xs text-slate-700 leading-relaxed">
-                    {selectedPartnerDetail.aiSummary}
-                  </p>
-                  <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                    <span className="text-[11px] font-semibold text-slate-500 mr-1">
-                      네이버 5점 리뷰 인기 메뉴:
-                    </span>
-                    {selectedPartnerDetail.topReviewMenu && (
-                      <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 shadow-2xs">
-                        ★ 1위: {selectedPartnerDetail.topReviewMenu}
-                      </span>
-                    )}
-                    {(selectedPartnerDetail.searchedMenus || []).length > 0 ? (
-                      selectedPartnerDetail.searchedMenus.map((menu, i) => (
-                        <span
-                          key={i}
-                          className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-white text-sky-800 border border-sky-200 shadow-2xs"
-                        >
-                          {menu}
-                        </span>
-                      ))
-                    ) : (
-                      <span className="text-xs text-slate-500">
-                        자동 추출된 메뉴가 없습니다. 우측 &apos;네이버 메뉴 보기&apos;를 눌러 직접 확인하세요.
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <a
-                    href={`https://www.instagram.com/explore/tags/${encodeURIComponent(
-                      buildRegionCompanyQuery(
-                        selectedPartnerDetail.companyName,
-                        selectedPartnerDetail.address
-                      ).replace(/\s+/g, '')
-                    )}/`}
-                    onClick={(e) =>
-                      openInstagramSearchInApp(
-                        e,
-                        selectedPartnerDetail.companyName,
-                        selectedPartnerDetail.address
-                      )
-                    }
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-pink-600 text-white hover:bg-pink-700"
-                  >
-                    <Instagram className="w-3.5 h-3.5" />
-                    인스타 앱 검색
-                  </a>
-                  <a
-                    href={`https://search.naver.com/search.naver?query=${encodeURIComponent(
-                      `${buildRegionCompanyQuery(
-                        selectedPartnerDetail.companyName,
-                        selectedPartnerDetail.address
-                      )} 메뉴`
-                    )}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700"
-                  >
-                    <BookOpen className="w-3.5 h-3.5" />
-                    네이버 메뉴 보기
-                  </a>
-                  <button
-                    onClick={() => setSelectedPartnerDetail(null)}
-                    className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500">
-                    <th className="py-3 px-3.5">업체명 / 대표·연락처</th>
-                    <th className="py-3 px-3">소재지 주소</th>
-                    <th className="py-3 px-3">판매 메뉴 (AI 정리)</th>
-                    <th className="py-3 px-3">인스타 · 블로그 · 검색 바로가기</th>
-                    <th className="py-3 px-3.5 text-center">메뉴·SNS 서칭</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 text-xs">
-                  {paginatedPartners.length === 0 ? (
-                    <tr>
-                      <td colSpan={5} className="py-14 text-center">
-                        <div className="max-w-sm mx-auto space-y-3">
-                          <FileSpreadsheet className="w-9 h-9 text-emerald-600 mx-auto" />
-                          <div className="font-bold text-sm text-slate-800">
-                            {partners.length === 0
-                              ? '현재 등록된 거래업체가 없습니다'
-                              : '검색 조건에 일치하는 거래업체가 없습니다'}
-                          </div>
-                          <p className="text-xs text-slate-500 leading-relaxed">
-                            {partners.length === 0
-                              ? '대표님의 발주처 엑셀 파일(.xlsx, .xls, .csv)을 업로드하시면 목록이 서버와 브라우저에 안전하게 저장됩니다.'
-                              : '다른 검색어나 필터를 선택해 보세요.'}
-                          </p>
-                          {partners.length === 0 && (
-                            <button
-                              onClick={() => setActiveModal('excel')}
-                              className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer"
-                            >
-                              <Upload className="w-3.5 h-3.5" />
-                              엑셀 파일 업로드하기
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    paginatedPartners.map((partner) => {
-                      const isSearchingThis = Boolean(searchingPartnerIds[partner.id]);
-                      const combinedQuery = buildRegionCompanyQuery(
-                        partner.companyName,
-                        partner.address
-                      );
-                      const tagKeyword = combinedQuery.replace(/\s+/g, '');
-                      const instaTagUrl = `https://www.instagram.com/explore/tags/${encodeURIComponent(
-                        tagKeyword
-                      )}/`;
-                      const naverSearchUrl = `https://search.naver.com/search.naver?query=${encodeURIComponent(
-                        combinedQuery
-                      )}`;
-                      const naverMenuSearchUrl = `https://search.naver.com/search.naver?query=${encodeURIComponent(
-                        `${combinedQuery} 메뉴`
-                      )}`;
-                      const googleSearchUrl = `https://www.google.com/search?q=${encodeURIComponent(
-                        combinedQuery
-                      )}`;
-
-                      return (
-                        <tr key={partner.id} className="hover:bg-slate-50/90 transition-colors">
-                          <td className="py-3 px-3.5 align-top">
-                            <div className="font-bold text-slate-900 text-sm">
-                              {partner.companyName}
-                            </div>
-                            <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
-                              <span>{partner.manager}</span>
-                              {partner.phone && (
-                                <a
-                                  href={`tel:${partner.phone}`}
-                                  className="inline-flex items-center gap-0.5 text-sky-700 font-medium hover:underline"
-                                >
-                                  <Phone className="w-3 h-3" />
-                                  {partner.phone}
-                                </a>
-                              )}
-                            </div>
-                          </td>
-
-                          <td className="py-3 px-3 align-top max-w-[210px]">
-                            <div className="text-slate-700 leading-snug">{partner.address}</div>
-                            {partner.topReviewMenu ? (
-                              <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold">
-                                ★ 5점 리뷰 최다: {partner.topReviewMenu}
-                              </span>
-                            ) : (
-                              <span className="inline-block mt-1 px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium">
-                                5점 리뷰 메뉴: 서칭 전
-                              </span>
-                            )}
-                          </td>
-
-                          <td className="py-3 px-3 align-top max-w-[240px]">
-                            {partner.isSearched ? (
-                              partner.searchedMenus?.length > 0 ? (
-                                <div className="space-y-1">
-                                  <div className="flex flex-wrap gap-1">
-                                    {partner.searchedMenus.map((m, idx) => (
-                                      <span
-                                        key={idx}
-                                        className={`inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
-                                          idx === 0
-                                            ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                        }`}
-                                      >
-                                        {idx === 0 ? `★ ${m}` : m}
-                                      </span>
-                                    ))}
-                                  </div>
-                                  {partner.aiSummary && (
-                                    <p className="text-[11px] text-slate-500 line-clamp-2">
-                                      {partner.aiSummary}
-                                    </p>
-                                  )}
-                                </div>
-                              ) : (
-                                <div className="space-y-1">
-                                  <div className="text-[11px] font-medium text-slate-600">
-                                    네이버 자동 추출 메뉴 없음
-                                  </div>
-                                  <a
-                                    href={naverMenuSearchUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:underline"
-                                  >
-                                    네이버 메뉴판 직접 열기 →
-                                  </a>
-                                </div>
-                              )
-                            ) : (
-                              <div>
-                                <div className="font-medium text-slate-500">{partner.mainProduct}</div>
-                                <span className="text-[11px] text-slate-400">
-                                  우측 &apos;메뉴 서칭&apos; 클릭 시 네이버 5점 리뷰 인기 메뉴 정리
-                                </span>
-                              </div>
-                            )}
-                          </td>
-
-                          <td className="py-3 px-3 align-top">
-                            <div className="flex flex-wrap items-center gap-1.5">
-                              <a
-                                href={instaTagUrl}
-                                onClick={(e) =>
-                                  openInstagramSearchInApp(e, partner.companyName, partner.address)
-                                }
-                                target="_blank"
-                                rel="noreferrer"
-                                title={`인스타 앱에서 '${combinedQuery}' 검색`}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-pink-50 text-pink-700 border border-pink-200 hover:bg-pink-100 transition-colors"
-                              >
-                                <Instagram className="w-3 h-3" />
-                                인스타
-                              </a>
-
-                              <a
-                                href={naverSearchUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                title={`네이버에서 '${combinedQuery}' 검색`}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
-                              >
-                                <BookOpen className="w-3 h-3" />
-                                네이버
-                              </a>
-
-                              <a
-                                href={googleSearchUrl}
-                                target="_blank"
-                                rel="noreferrer"
-                                title={`구글에서 '${combinedQuery}' 검색`}
-                                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-                              >
-                                <Globe className="w-3 h-3" />
-                                구글
-                              </a>
-                            </div>
-                            <div className="text-[10px] text-slate-400 mt-1">
-                              검색어: <strong className="text-slate-600">{combinedQuery}</strong>
-                            </div>
-                          </td>
-
-                          <td className="py-3 px-3.5 align-top text-center">
-                            <button
-                              onClick={() => handleSearchSinglePartnerMenu(partner)}
-                              disabled={isSearchingThis}
-                              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
-                                partner.isSearched
-                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
-                                  : 'bg-sky-600 text-white hover:bg-sky-700 shadow-2xs'
-                              }`}
-                            >
-                              {isSearchingThis ? (
-                                <>
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                  서칭중
-                                </>
-                              ) : partner.isSearched ? (
-                                <>
-                                  <Check className="w-3 h-3" />
-                                  재서칭
-                                </>
-                              ) : (
-                                <>
-                                  <Sparkles className="w-3 h-3" />
-                                  메뉴 서칭
-                                </>
-                              )}
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 text-xs text-slate-500">
-              <div>
-                전체 <strong>{filteredPartners.length}</strong>개 업체 중{' '}
-                <strong>
-                  {filteredPartners.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1}
-                </strong>
-                –
-                <strong>
-                  {Math.min(currentPage * itemsPerPage, filteredPartners.length)}
-                </strong>
-                번 표시
-              </div>
-
-              <div className="flex items-center gap-1 flex-wrap">
-                <button
-                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
-                >
-                  이전
-                </button>
-                {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-                  <button
-                    key={pageNum}
-                    onClick={() => setCurrentPage(pageNum)}
-                    className={`w-7 h-7 rounded-lg font-semibold cursor-pointer ${
-                      currentPage === pageNum
-                        ? 'bg-sky-600 text-white'
-                        : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    {pageNum}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                  disabled={currentPage === totalPages}
-                  className="px-2.5 py-1 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-40 cursor-pointer"
-                >
-                  다음
-                </button>
-              </div>
-            </div>
-          </div>
+          <PartnerTableSection
+            partners={partners}
+            filteredPartners={filteredPartners}
+            paginatedPartners={paginatedPartners}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            regionFilter={regionFilter}
+            setRegionFilter={setRegionFilter}
+            categoryFilter={categoryFilter}
+            setCategoryFilter={setCategoryFilter}
+            availableRegions={availableRegions}
+            speciesData={speciesData}
+            currentPage={currentPage}
+            setCurrentPage={setCurrentPage}
+            totalPages={totalPages}
+            itemsPerPage={itemsPerPage}
+            searchingPartnerIds={searchingPartnerIds}
+            isBatchSearching={isBatchSearching}
+            selectedPartnerDetail={selectedPartnerDetail}
+            setSelectedPartnerDetail={setSelectedPartnerDetail}
+            onClearAllPartners={handleClearAllPartners}
+            onBatchSearchCurrentPage={handleBatchSearchCurrentPage}
+            onOpenExcelModal={() => setActiveModal('excel')}
+            onSearchSinglePartnerMenu={handleSearchSinglePartnerMenu}
+          />
         </section>
       </main>
 
-      {/* 모달 1: TOP 5 메인재료 AI 서치 실행 확인창 */}
-      {activeModal === 'confirmTopIngredients' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-sky-600" />
-                <h3 className="text-base font-bold text-slate-900">
-                  TOP 5 메인재료 AI 서치 실행 확인
-                </h3>
-              </div>
-              <button
-                onClick={() => setActiveModal(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-slate-600 leading-relaxed">
-              <p>
-                등록된 전체 거래처의 네이버 메뉴·리뷰를 검색하여 <strong>메인 원재료 TOP 5</strong>를 집계합니다. 정말 실행하시겠습니까?
-              </p>
-
-              <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">대상 거래처 수</span>
-                  <strong className="text-slate-900">{partners.length}개사</strong>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">배치 실행 계획</span>
-                  <strong className="text-slate-900">
-                    5개사씩 묶음 · 총 {Math.ceil(partners.length / 5)}회 API 호출
-                  </strong>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-500">예상 리소스 · 비용</span>
-                  <strong className="text-sky-700">무료 할당량 내 0원 / 유료 시 약 200~600원</strong>
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                <span>
-                  실행 시 <strong>Gemini API 토큰 및 Google Search 그라운딩 할당량</strong>이 소모됩니다. (진행 중 언제든 [중지] 버튼으로 중단 가능)
-                </span>
-              </div>
-
-              {!supabaseConfig.geminiKey && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 space-y-2">
-                  <div className="font-bold flex items-center gap-1.5">
-                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-                    현재 Gemini API 키가 설정되어 있지 않습니다.
-                  </div>
-                  <p className="text-[11px]">
-                    실제 홈페이지(Vercel)에서는 API 키가 없으면 검색이 차단됩니다. 먼저 키를 입력해 주세요.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => setActiveModal('cloud')}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white border border-rose-300 text-rose-700 hover:bg-rose-100 text-[11px] font-bold cursor-pointer"
-                  >
-                    <Database className="w-3.5 h-3.5" />
-                    동기화 · AI키 설정 열기
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
-              <button
-                type="button"
-                onClick={() => setActiveModal(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveModal(null);
-                  handleRunTopIngredientsSearch();
-                }}
-                className="px-4 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs cursor-pointer"
-              >
-                확인 · 서치 시작
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 모달 2: PC·모바일 실시간 동기화 및 AI 검색 키 설정 */}
-      {activeModal === 'cloud' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <Database className="w-5 h-5 text-sky-600" />
-                <h3 className="text-base font-bold text-slate-900">
-                  PC·모바일 실시간 동기화 및 AI 검색 키 설정
-                </h3>
-              </div>
-              <button
-                onClick={() => setActiveModal(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveSupabaseConfig} className="space-y-3.5">
-              <div className="p-3.5 rounded-xl bg-sky-50/70 border border-sky-200 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="text-xs font-bold text-sky-900 flex items-center gap-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                    Google Gemini API Key (실제 홈페이지 AI 시세·메뉴 서칭용)
-                  </label>
-                  <a
-                    href="https://aistudio.google.com/apikey"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-700 hover:underline shrink-0"
-                  >
-                    무료 키 10초 발급받기
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-                <input
-                  type="text"
-                  placeholder="AQ. 로 시작하는 Google AI Studio API 키 붙여넣기"
-                  value={supabaseForm.geminiKey}
-                  onChange={(e) =>
-                    setSupabaseForm({ ...supabaseForm, geminiKey: e.target.value })
-                  }
-                  className="w-full px-3 py-2 text-xs bg-white border border-sky-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
-                />
-                <p className="text-[11px] text-sky-800 leading-relaxed">
-                  * 구글 최신 <strong>AQ. 인증 키</strong>(x-goog-api-key 헤더 방식)를 공식 지원합니다. 키 입력 후 아래 <strong>[연결 테스트 실행]</strong>으로 즉시 정상 여부를 확인하세요.
-                </p>
-              </div>
-
-              <div className="space-y-2.5 pt-1">
-                <div className="text-xs font-bold text-slate-800">
-                  Supabase 클라우드 DB 연결 (PC · 스마트폰 실시간 공유)
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Supabase Project URL
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="https://xxxxx.supabase.co"
-                    value={supabaseForm.url}
-                    onChange={(e) => setSupabaseForm({ ...supabaseForm, url: e.target.value })}
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">
-                    Supabase Anon Public Key
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="eyJhbGciOiJIUzI1NiIs..."
-                    value={supabaseForm.anonKey}
-                    onChange={(e) =>
-                      setSupabaseForm({ ...supabaseForm, anonKey: e.target.value })
-                    }
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
-                  />
-                </div>
-              </div>
-
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 text-[11px] text-slate-600 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-bold text-slate-800">
-                    자체 연결 진단 테스트 (실제 서버 응답 확인)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleRunConnectionDiagnostics}
-                    disabled={isRunningDiag}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-900 hover:bg-slate-800 text-white disabled:opacity-50 cursor-pointer shrink-0"
-                  >
-                    {isRunningDiag ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-3 h-3" />
-                    )}
-                    {isRunningDiag ? '진단 중...' : '연결 테스트 실행'}
-                  </button>
-                </div>
-
-                {diagResults && (
-                  <div className="space-y-1.5 pt-1 border-t border-slate-200">
-                    {[
-                      { label: '1. Supabase 읽기 (public)', res: diagResults.sbRead },
-                      { label: '2. Supabase 쓰기 (public)', res: diagResults.sbWrite },
-                      { label: '3. Gemini AI 키', res: diagResults.gemini },
-                    ].map((row) => (
-                      <div
-                        key={row.label}
-                        className={`p-2 rounded-lg border text-[11px] ${
-                          row.res.ok
-                            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                            : 'bg-rose-50 border-rose-200 text-rose-900'
-                        }`}
-                      >
-                        <div className="font-bold flex items-center justify-between">
-                          <span>{row.label}</span>
-                          <span>{row.res.ok ? '✅ 성공' : '❌ 실패'}</span>
-                        </div>
-                        <div className="mt-0.5 break-all opacity-90 font-mono text-[10px]">
-                          {row.res.detail}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                <div className="font-bold text-slate-800 pt-1">
-                  Supabase SQL Editor 1회 실행 코드 (반드시 Run without RLS 클릭):
-                </div>
-                <pre className="bg-slate-900 text-emerald-300 p-2 rounded-lg overflow-x-auto text-[10px]">
-{`create table if not exists public.seafood_state (
-  id text primary key,
-  payload jsonb not null,
-  updated_at timestamptz default now()
-);
-alter table public.seafood_state disable row level security;
-grant all on table public.seafood_state to anon, authenticated;
-NOTIFY pgrst, 'reload schema';`}
-                </pre>
-              </div>
-
-              <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={handleClearAllPartners}
-                  className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-slate-500 hover:text-rose-600 rounded-lg cursor-pointer"
-                >
-                  <RotateCcw className="w-3.5 h-3.5" />
-                  등록 업체 전체 비우기
-                </button>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveModal(null)}
-                    className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
-                  >
-                    닫기
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-4 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg cursor-pointer"
-                  >
-                    저장 및 즉시 동기화
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 모달 3: 엑셀 파일 일괄 추가 */}
-      {activeModal === 'excel' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <div className="flex items-center gap-2">
-                <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
-                <h3 className="text-base font-bold text-slate-900">
-                  거래업체(발주처) 엑셀 파일 일괄 추가
-                </h3>
-              </div>
-              <button
-                onClick={() => {
-                  setActiveModal(null);
-                  setExcelPreviewRows([]);
-                  setExcelFileName('');
-                }}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="p-4 rounded-xl bg-slate-50 border-2 border-dashed border-slate-300 text-center space-y-2">
-              <Upload className="w-8 h-8 text-emerald-600 mx-auto" />
-              <div className="text-xs font-semibold text-slate-800">
-                엑셀 파일(.xlsx, .xls, .csv)을 선택해 주세요
-              </div>
-              <p className="text-[11px] text-slate-500">
-                열 구성: <strong>[A열: 순서] · [B열: 업체명] · [C열: 대표자] · [D열: 전화번호] · [E열: 주소]</strong>
-                <br />
-                기존에 등록된 업체명과 중복되는 행은 자동으로 제외되고 신규 업체만 추가됩니다.
-              </p>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.xls,.csv"
-                onChange={handleExcelFileChange}
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="mt-2 inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer"
-              >
-                <FileSpreadsheet className="w-3.5 h-3.5" />
-                {excelFileName ? `선택됨: ${excelFileName}` : 'PC에서 엑셀 파일 선택'}
-              </button>
-            </div>
-
-            {excelPreviewRows.length > 0 && (
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="font-bold text-slate-800">
-                    미리보기 (총 {excelPreviewRows.length}개 행 인식됨)
-                  </span>
-                  <span className="text-emerald-700 font-semibold">상위 5건 표시</span>
-                </div>
-                <div className="max-h-44 overflow-y-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-left text-[11px]">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-slate-500">
-                      <tr>
-                        <th className="py-2 px-2.5">업체명</th>
-                        <th className="py-2 px-2.5">대표자</th>
-                        <th className="py-2 px-2.5">전화번호</th>
-                        <th className="py-2 px-2.5">주소</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {excelPreviewRows.slice(0, 5).map((r, i) => (
-                        <tr key={i}>
-                          <td className="py-1.5 px-2.5 font-bold text-slate-800">{r.companyName}</td>
-                          <td className="py-1.5 px-2.5 text-slate-600">{r.ceoName}</td>
-                          <td className="py-1.5 px-2.5 text-slate-600">{r.phone}</td>
-                          <td className="py-1.5 px-2.5 text-slate-500 truncate max-w-[180px]">
-                            {r.address}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveModal(null);
-                  setExcelPreviewRows([]);
-                  setExcelFileName('');
-                }}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                disabled={excelPreviewRows.length === 0}
-                onClick={handleConfirmExcelImport}
-                className="px-4 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg disabled:opacity-40 cursor-pointer"
-              >
-                {excelPreviewRows.length > 0
-                  ? `${excelPreviewRows.length}건 거래업체 일괄 추가`
-                  : '파일을 먼저 선택하세요'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 모달 4: 신규 거래업체 개별 등록 */}
-      {activeModal === 'partner' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900">
-                신규 거래업체(발주처) 개별 등록
-              </h3>
-              <button
-                onClick={() => setActiveModal(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddPartner} className="space-y-3.5 mt-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  업체명 *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="예: 부산수산유통"
-                  value={newPartnerForm.companyName}
-                  onChange={(e) =>
-                    setNewPartnerForm({ ...newPartnerForm, companyName: e.target.value })
-                  }
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </div>
-
-              <div className="p-3 rounded-xl bg-pink-50/50 border border-pink-100 space-y-2">
-                <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <Instagram className="w-3.5 h-3.5 text-pink-600" />
-                  SNS 및 블로그 채널 연동 (선택)
-                </div>
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                      인스타그램 계정 ID
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="@account_id"
-                      value={newPartnerForm.snsHandle}
-                      onChange={(e) =>
-                        setNewPartnerForm({ ...newPartnerForm, snsHandle: e.target.value })
-                      }
-                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
-                      네이버 블로그/스토어 URL
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="https://blog.naver.com/..."
-                      value={newPartnerForm.blogUrl}
-                      onChange={(e) =>
-                        setNewPartnerForm({ ...newPartnerForm, blogUrl: e.target.value })
-                      }
-                      className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    주력 어종 *
-                  </label>
-                  <select
-                    value={newPartnerForm.category}
-                    onChange={(e) =>
-                      setNewPartnerForm({ ...newPartnerForm, category: e.target.value })
-                    }
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  >
-                    {Object.keys(speciesData).map((sp) => (
-                      <option key={sp} value={sp}>
-                        {sp}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    거래 상태
-                  </label>
-                  <select
-                    value={newPartnerForm.status}
-                    onChange={(e) =>
-                      setNewPartnerForm({ ...newPartnerForm, status: e.target.value })
-                    }
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  >
-                    <option value="활발">활발</option>
-                    <option value="보통">보통</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  주요 판매 상품 / 메뉴 *
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="예: 선망 참고등어 (대/10kg) · 회무침"
-                  value={newPartnerForm.mainProduct}
-                  onChange={(e) =>
-                    setNewPartnerForm({ ...newPartnerForm, mainProduct: e.target.value })
-                  }
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    공급 단가 (원) *
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    placeholder="39000"
-                    value={newPartnerForm.unitPrice}
-                    onChange={(e) =>
-                      setNewPartnerForm({ ...newPartnerForm, unitPrice: e.target.value })
-                    }
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    주간 출고량
-                  </label>
-                  <input
-                    type="number"
-                    placeholder="500"
-                    value={newPartnerForm.totalVolume}
-                    onChange={(e) =>
-                      setNewPartnerForm({ ...newPartnerForm, totalVolume: e.target.value })
-                    }
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    대표자 / 담당자
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="홍길동 대표"
-                    value={newPartnerForm.manager}
-                    onChange={(e) =>
-                      setNewPartnerForm({ ...newPartnerForm, manager: e.target.value })
-                    }
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    연락처
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="010-1234-5678"
-                    value={newPartnerForm.phone}
-                    onChange={(e) =>
-                      setNewPartnerForm({ ...newPartnerForm, phone: e.target.value })
-                    }
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  소재지 주소
-                </label>
-                <input
-                  type="text"
-                  placeholder="예: 부산시 서구 충무대로 202"
-                  value={newPartnerForm.address}
-                  onChange={(e) =>
-                    setNewPartnerForm({ ...newPartnerForm, address: e.target.value })
-                  }
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setActiveModal(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg cursor-pointer"
-                >
-                  등록 완료
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* 모달 5: 오늘의 위판장 시세 등록 */}
-      {activeModal === 'auction' && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-              <h3 className="text-base font-bold text-slate-900">오늘의 위판장 시세 등록</h3>
-              <button
-                onClick={() => setActiveModal(null)}
-                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddAuction} className="space-y-3.5 mt-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  어종 선택 *
-                </label>
-                <select
-                  value={newAuctionForm.species}
-                  onChange={(e) =>
-                    setNewAuctionForm({ ...newAuctionForm, species: e.target.value })
-                  }
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                >
-                  {Object.keys(speciesData).map((sp) => (
-                    <option key={sp} value={sp}>
-                      {sp} ({speciesData[sp].unit})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  위판장명 *
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={newAuctionForm.market}
-                  onChange={(e) =>
-                    setNewAuctionForm({ ...newAuctionForm, market: e.target.value })
-                  }
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    당일 평균 낙찰가 (원) *
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    placeholder="25000"
-                    value={newAuctionForm.price}
-                    onChange={(e) =>
-                      setNewAuctionForm({ ...newAuctionForm, price: e.target.value })
-                    }
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    위판 물량
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="예: 820 kg"
-                    value={newAuctionForm.volume}
-                    onChange={(e) =>
-                      setNewAuctionForm({ ...newAuctionForm, volume: e.target.value })
-                    }
-                    className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  시세 동향
-                </label>
-                <select
-                  value={newAuctionForm.status}
-                  onChange={(e) =>
-                    setNewAuctionForm({ ...newAuctionForm, status: e.target.value })
-                  }
-                  className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500"
-                >
-                  <option value="급등">급등</option>
-                  <option value="강세">강세</option>
-                  <option value="상승">상승</option>
-                  <option value="보합">보합</option>
-                  <option value="약세">약세</option>
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-3">
-                <button
-                  type="button"
-                  onClick={() => setActiveModal(null)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
-                >
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg cursor-pointer"
-                >
-                  시세 반영
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <Modals
+        activeModal={activeModal}
+        setActiveModal={setActiveModal}
+        partnersCount={partners.length}
+        supabaseConfig={supabaseConfig}
+        supabaseForm={supabaseForm}
+        setSupabaseForm={setSupabaseForm}
+        diagResults={diagResults}
+        isRunningDiag={isRunningDiag}
+        onRunConnectionDiagnostics={handleRunConnectionDiagnostics}
+        onSaveSupabaseConfig={handleSaveSupabaseConfig}
+        onClearAllPartners={handleClearAllPartners}
+        onRunTopIngredientsSearch={handleRunTopIngredientsSearch}
+        fileInputRef={fileInputRef}
+        excelFileName={excelFileName}
+        excelPreviewRows={excelPreviewRows}
+        setExcelPreviewRows={setExcelPreviewRows}
+        setExcelFileName={setExcelFileName}
+        onExcelFileChange={handleExcelFileChange}
+        onConfirmExcelImport={handleConfirmExcelImport}
+        speciesData={speciesData}
+        newPartnerForm={newPartnerForm}
+        setNewPartnerForm={setNewPartnerForm}
+        onAddPartner={handleAddPartner}
+        newAuctionForm={newAuctionForm}
+        setNewAuctionForm={setNewAuctionForm}
+        onAddAuction={handleAddAuction}
+      />
     </div>
   );
 }
