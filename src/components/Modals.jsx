@@ -174,7 +174,7 @@ export default function Modals({
         </div>
       )}
 
-      {/* 모달 2: PC·모바일 실시간 동기화 및 AI 검색 키 설정 */}
+      {/* 모달 2: PC·모바일 실시간 동기화 및 공공데이터·AI 검색 키 설정 */}
       {activeModal === 'cloud' && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-slate-200 space-y-4 max-h-[92vh] overflow-y-auto">
@@ -182,7 +182,7 @@ export default function Modals({
               <div className="flex items-center gap-2">
                 <Database className="w-5 h-5 text-sky-600" />
                 <h3 className="text-base font-bold text-slate-900">
-                  PC·모바일 실시간 동기화 및 AI 검색 키 설정
+                  PC·모바일 실시간 동기화 및 공공데이터·AI 키 설정
                 </h3>
               </div>
               <button
@@ -194,11 +194,43 @@ export default function Modals({
             </div>
 
             <form onSubmit={onSaveSupabaseConfig} className="space-y-3.5">
+              {/* 1. 공공데이터포털 무료 위판장 경락가격 API 키 */}
+              <div className="p-3.5 rounded-xl bg-emerald-50/80 border border-emerald-200 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+                    <Database className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    공공데이터포털(data.go.kr) 위판장 시세 API 인증키 (100% 무료)
+                  </label>
+                  <a
+                    href="https://www.data.go.kr/data/15058325/openapi.do"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700 hover:underline shrink-0"
+                  >
+                    무료 인증키 신청
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                </div>
+                <input
+                  type="text"
+                  placeholder="공공데이터포털 일반 인증키(Encoding 또는 Decoding) 붙여넣기"
+                  value={supabaseForm?.publicDataKey || ''}
+                  onChange={(e) =>
+                    setSupabaseForm({ ...supabaseForm, publicDataKey: e.target.value })
+                  }
+                  className="w-full px-3 py-2 text-xs bg-white border border-emerald-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                />
+                <p className="text-[11px] text-emerald-900 leading-relaxed">
+                  - 키 입력 시 위판장 시세·물량 갱신이 <strong>AI 토큰 소모 없이 공식 전산 낙찰가</strong>로 1순위 작동합니다.
+                </p>
+              </div>
+
+              {/* 2. Google Gemini API 키 */}
               <div className="p-3.5 rounded-xl bg-sky-50/70 border border-sky-200 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <label className="text-xs font-bold text-sky-900 flex items-center gap-1.5">
                     <Sparkles className="w-3.5 h-3.5 text-sky-600 shrink-0" />
-                    Google Gemini API Key (실제 홈페이지 AI 시세·메뉴 서칭용)
+                    Google Gemini API Key (거래처 메뉴·원재료 TOP 5 분석용)
                   </label>
                   <a
                     href="https://aistudio.google.com/apikey"
@@ -212,7 +244,7 @@ export default function Modals({
                 </div>
                 <input
                   type="text"
-                  placeholder="AQ. 로 시작하는 Google AI Studio API 키 붙여넣기"
+                  placeholder="AQ. 또는 AIza 로 시작하는 Google AI Studio API 키 붙여넣기"
                   value={supabaseForm?.geminiKey || ''}
                   onChange={(e) =>
                     setSupabaseForm({ ...supabaseForm, geminiKey: e.target.value })
@@ -220,7 +252,7 @@ export default function Modals({
                   className="w-full px-3 py-2 text-xs bg-white border border-sky-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono"
                 />
                 <p className="text-[11px] text-sky-800 leading-relaxed">
-                  - 구글 최신 <strong>AQ. 인증 키</strong>(x-goog-api-key 헤더 방식)를 공식 지원합니다. 키 입력 후 아래 <strong>[연결 테스트 실행]</strong>으로 즉시 정상 여부를 확인하세요.
+                  - 신규 거래처 원재료 서치 및 공공데이터 미지원 어종 보조 조회에 사용됩니다.
                 </p>
               </div>
 
@@ -282,6 +314,9 @@ export default function Modals({
                       { label: '1. Supabase 읽기 (public)', res: diagResults.sbRead },
                       { label: '2. Supabase 쓰기 (public)', res: diagResults.sbWrite },
                       { label: '3. Gemini AI 키', res: diagResults.gemini },
+                      ...(diagResults.publicData
+                        ? [{ label: '4. 공공데이터 위판 시세 API', res: diagResults.publicData }]
+                        : []),
                     ].map((row) => (
                       <div
                         key={row.label}

@@ -78,11 +78,13 @@ export default function App() {
     url: DEFAULT_SUPABASE_URL,
     anonKey: DEFAULT_SUPABASE_ANON_KEY,
     geminiKey: '',
+    publicDataKey: '',
   });
   const [supabaseForm, setSupabaseForm] = useState({
     url: DEFAULT_SUPABASE_URL,
     anonKey: DEFAULT_SUPABASE_ANON_KEY,
     geminiKey: '',
+    publicDataKey: '',
   });
   const [diagResults, setDiagResults] = useState(null);
   const [isRunningDiag, setIsRunningDiag] = useState(false);
@@ -203,6 +205,7 @@ export default function App() {
             .replace(/\/$/, ''),
           anonKey: (parsedSb.anonKey || DEFAULT_SUPABASE_ANON_KEY).trim(),
           geminiKey: (parsedSb.geminiKey || '').trim(),
+          publicDataKey: (parsedSb.publicDataKey || '').trim(),
         };
         loadedSbUrl = normalizedSb.url;
         loadedSbKey = normalizedSb.anonKey;
@@ -319,13 +322,21 @@ export default function App() {
             JSON.stringify(remote.topIngredients)
           );
         }
-        if (remote.geminiKey) {
+        if (remote.geminiKey || remote.publicDataKey) {
           setSupabaseConfig((prev) => {
-            const next = { ...prev, geminiKey: remote.geminiKey };
+            const next = {
+              ...prev,
+              geminiKey: remote.geminiKey || prev.geminiKey,
+              publicDataKey: remote.publicDataKey || prev.publicDataKey,
+            };
             localStorage.setItem(`${APP_ID}_supabase`, JSON.stringify(next));
             return next;
           });
-          setSupabaseForm((prev) => ({ ...prev, geminiKey: remote.geminiKey }));
+          setSupabaseForm((prev) => ({
+            ...prev,
+            geminiKey: remote.geminiKey || prev.geminiKey,
+            publicDataKey: remote.publicDataKey || prev.publicDataKey,
+          }));
         }
         if (Array.isArray(remote.snsFeeds)) {
           setSnsFeeds(remote.snsFeeds);
@@ -418,11 +429,12 @@ export default function App() {
     setIsRefreshingAuction(true);
 
     const schedule = getKstScheduleInfo();
-    const { updatedMap, liveUpdatedCount, isRateLimit, error } =
+    const { updatedMap, liveUpdatedCount, source, isRateLimit, error } =
       await fetchAllSpeciesAuctionBatch(
         safeSpeciesData,
         supabaseConfig.geminiKey,
-        DEFAULT_SOUTH_MARKETS
+        DEFAULT_SOUTH_MARKETS,
+        supabaseConfig.publicDataKey
       );
 
     const updatedLabel = `${schedule.formattedNow}${isAutoNoon ? ' (12:00 자동)' : ' (수동)'}`;
@@ -441,15 +453,16 @@ export default function App() {
 
     if (isRateLimit) {
       showToast(
-        '⚠️ AI 무료 사용 한도를 모두 소진하여 연쇄 호출 없이 즉시 중지했습니다. (날짜만 오늘 기준으로 갱신됨)'
+        '⚠️ AI 무료 사용 한도를 소진하여 즉시 중지했습니다. [동기화 설정]에 무료 공공데이터 인증키를 입력하시면 한도 제한 없이 공식 위판 시세가 갱신됩니다.'
       );
     } else if (isAutoNoon) {
       showToast('낮 12:00 정기 스케줄에 따라 부산·남해 위판장 시세가 자동 갱신되었습니다.');
     } else if (liveUpdatedCount > 0) {
-      showToast(`부산·남해 위판장 ${liveUpdatedCount}개 어종 실시간 시세와 날짜가 최신화되었습니다!`);
+      const sourceLabel = source === 'public' ? '해양수산부·수협 공식 위판장 전산' : 'AI 웹 검색';
+      showToast(`${sourceLabel} 기준 ${liveUpdatedCount}개 어종 실제 시세·물량이 최신화되었습니다!`);
     } else {
       showToast(
-        `기준 날짜가 오늘(${schedule.todayStr})로 갱신되었습니다. (${error || 'AI 키 확인 필요'})`
+        `기준 날짜가 오늘(${schedule.todayStr})로 갱신되었습니다. (${error || 'API 키 확인 필요'})`
       );
     }
   };
@@ -517,11 +530,13 @@ export default function App() {
       .replace(/\/$/, '');
     const cleanSbKey = (supabaseForm.anonKey || '').trim();
     const cleanGeminiKey = (supabaseForm.geminiKey || '').trim();
+    const cleanPublicKey = (supabaseForm.publicDataKey || '').trim();
 
     const results = {
       sbRead: { ok: false, detail: '미실행' },
       sbWrite: { ok: false, detail: '미실행' },
       gemini: { ok: false, detail: '미실행' },
+      publicData: { ok: false, detail: '미실행' },
     };
 
     const sbHeaders = {
@@ -558,15 +573,16 @@ export default function App() {
         body: JSON.stringify({
           id: 'main',
           payload: {
-            pin: savedPin,
-            partners,
-            speciesData: safeSpeciesData,
-            snsFeeds,
-            topIngredients: topIngredientsState,
-            auctionUpdatedAt,
-            lastNoonSyncDate,
-            geminiKey: cleanGeminiKey,
-          },
+              pin: nextPin,
+              partners: nextPartners,
+              speciesData: nextSpecies,
+              snsFeeds: nextFeeds,
+              topIngredients: nextTopIng,
+              auctionUpdatedAt: nextAuctionUpdatedAt,
+              lastNoonSyncDate: nextLastNoonSyncDate,
+              geminiKey: activeSb.geminiKey || '',
+              publicDataKey: activeSb.publicDataKey || '',
+            },
           updated_at: new Date().toISOString(),
         }),
       });
@@ -578,20 +594,24 @@ export default function App() {
       results.sbWrite = { ok: false, detail: e.message };
     }
 
-    if (!cleanGeminiKey) {
-      results.gemini = { ok: false, detail: 'Gemini API 키가 비어 있습니다.' };
+    if (!cleanPublicKey) {
+      results.publicData = { ok: false, detail: '공공데이터 인증키가 비어 있습니다 (선택 입력).' };
     } else {
       try {
+        const encoded = cleanPublicKey.includes('%')
+          ? cleanPublicKey
+          : encodeURIComponent(cleanPublicKey);
         const res = await fetch(
-          'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1',
-          { headers: { 'x-goog-api-key': cleanGeminiKey } }
+          `https://apis.data.go.kr/1192000/select0040List/getselect0040List?serviceKey=${encoded}&numOfRows=1&pageNo=1&type=json`
         );
         const text = await res.text().catch(() => '');
-        results.gemini = res.ok
-          ? { ok: true, detail: `HTTP ${res.status} 정상 (API 키 인증 성공)` }
-          : { ok: false, detail: `HTTP ${res.status}: ${text.slice(0, 120)}` };
+        const isServiceError = text.includes('SERVICE_KEY_IS_NOT_REGISTERED_ERROR') || text.includes('SERVICE ERROR');
+        results.publicData =
+          res.ok && !isServiceError
+            ? { ok: true, detail: `HTTP ${res.status} 정상 (공공데이터 위판 시세 인증 성공)` }
+            : { ok: false, detail: `인증 확인 필요: ${text.slice(0, 120)}` };
       } catch (e) {
-        results.gemini = { ok: false, detail: e.message };
+        results.publicData = { ok: false, detail: e.message };
       }
     }
 
@@ -605,6 +625,7 @@ export default function App() {
       url: supabaseForm.url.trim(),
       anonKey: supabaseForm.anonKey.trim(),
       geminiKey: (supabaseForm.geminiKey || '').trim(),
+      publicDataKey: (supabaseForm.publicDataKey || '').trim(),
     };
     setSupabaseConfig(trimmed);
     localStorage.setItem(`${APP_ID}_supabase`, JSON.stringify(trimmed));
