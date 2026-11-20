@@ -53,7 +53,6 @@ import {
 
 const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
 
-// 한국 표준시(KST) 기준 현재 시각 및 당일 12:00(정오) 슬롯 키 계산
 function getKstScheduleInfo() {
   const now = new Date();
   const kstMs = now.getTime() + 9 * 60 * 60 * 1000;
@@ -87,7 +86,6 @@ export default function App() {
   const [diagResults, setDiagResults] = useState(null);
   const [isRunningDiag, setIsRunningDiag] = useState(false);
 
-  // 보안 마스터 PIN 상태
   const [savedPin, setSavedPin] = useState(DEFAULT_MASTER_PIN);
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [pinInput, setPinInput] = useState('');
@@ -96,7 +94,6 @@ export default function App() {
   const [pinError, setPinError] = useState('');
   const [isChangingPin, setIsChangingPin] = useState(false);
 
-  // 기상 · 위판 시세 상태
   const [selectedSea, setSelectedSea] = useState('busan');
   const [windyOverlay, setWindyOverlay] = useState('wind');
   const [speciesData, setSpeciesData] = useState(INITIAL_SPECIES_DATA);
@@ -108,7 +105,6 @@ export default function App() {
   const [lastNoonSyncDate, setLastNoonSyncDate] = useState('');
   const [isRefreshingAuction, setIsRefreshingAuction] = useState(false);
 
-  // 거래처 · SNS 상태
   const [partners, setPartners] = useState(INITIAL_PARTNERS);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('전체');
@@ -125,7 +121,6 @@ export default function App() {
   const [snsInputCompany, setSnsInputCompany] = useState('');
   const [snsInputText, setSnsInputText] = useState('');
 
-  // 메인재료 TOP 5 상태
   const [topIngredientsState, setTopIngredientsState] = useState({
     items: [],
     updatedAt: '',
@@ -137,7 +132,6 @@ export default function App() {
   const [searchProgress, setSearchProgress] = useState({ done: 0, total: 0 });
   const abortSearchRef = useRef(false);
 
-  // 모달 · 토스트 · 폼 상태
   const [activeModal, setActiveModal] = useState(null);
   const [toastMessage, setToastMessage] = useState('');
   const [excelPreviewRows, setExcelPreviewRows] = useState([]);
@@ -168,6 +162,19 @@ export default function App() {
     volume: '',
     status: '강세',
   });
+
+  // 절대 null/undefined가 되지 않도록 보장하는 안전 객체
+  const safeSpeciesData = useMemo(() => {
+    if (
+      speciesData &&
+      typeof speciesData === 'object' &&
+      !Array.isArray(speciesData) &&
+      Object.keys(speciesData).length > 0
+    ) {
+      return speciesData;
+    }
+    return INITIAL_SPECIES_DATA;
+  }, [speciesData]);
 
   const showToast = (msg) => {
     setToastMessage(msg);
@@ -207,26 +214,34 @@ export default function App() {
       }
       if (localPartners) {
         const parsedPartners = JSON.parse(localPartners);
-        setPartners(parsedPartners);
-        if (parsedPartners.length > 0) {
-          setSnsInputCompany(parsedPartners[0].companyName);
+        if (Array.isArray(parsedPartners)) {
+          setPartners(parsedPartners);
+          if (parsedPartners.length > 0) {
+            setSnsInputCompany(parsedPartners[0].companyName);
+          }
         }
       }
       if (localSpecies) {
         const parsedSp = JSON.parse(localSpecies);
-        if (parsedSp && !isLegacySpeciesMap(parsedSp)) {
+        if (parsedSp && typeof parsedSp === 'object' && !isLegacySpeciesMap(parsedSp)) {
           setSpeciesData(parsedSp);
           if (!parsedSp[selectedSpecies]) {
-            setSelectedSpecies(Object.keys(parsedSp)[0]);
+            setSelectedSpecies(Object.keys(parsedSp)[0] || '삼치');
           }
         }
       }
-      if (localFeeds) setSnsFeeds(JSON.parse(localFeeds));
-      if (localTopIng) setTopIngredientsState(JSON.parse(localTopIng));
+      if (localFeeds) {
+        const parsedFeeds = JSON.parse(localFeeds);
+        if (Array.isArray(parsedFeeds)) setSnsFeeds(parsedFeeds);
+      }
+      if (localTopIng) {
+        const parsedTop = JSON.parse(localTopIng);
+        if (parsedTop && typeof parsedTop === 'object') setTopIngredientsState(parsedTop);
+      }
       if (localAuctionMeta) {
         const meta = JSON.parse(localAuctionMeta);
-        if (meta.auctionUpdatedAt) setAuctionUpdatedAt(meta.auctionUpdatedAt);
-        if (meta.lastNoonSyncDate) setLastNoonSyncDate(meta.lastNoonSyncDate);
+        if (meta?.auctionUpdatedAt) setAuctionUpdatedAt(meta.auctionUpdatedAt);
+        if (meta?.lastNoonSyncDate) setLastNoonSyncDate(meta.lastNoonSyncDate);
       }
     } catch (e) {
       console.warn('로컬 저장소 불러오기 건너뜀:', e);
@@ -270,11 +285,15 @@ export default function App() {
           setPartners(remote.partners);
           localStorage.setItem(`${APP_ID}_partners`, JSON.stringify(remote.partners));
         }
-        if (remote.speciesData && !isLegacySpeciesMap(remote.speciesData)) {
+        if (
+          remote.speciesData &&
+          typeof remote.speciesData === 'object' &&
+          !isLegacySpeciesMap(remote.speciesData)
+        ) {
           setSpeciesData(remote.speciesData);
           localStorage.setItem(`${APP_ID}_species`, JSON.stringify(remote.speciesData));
           if (!remote.speciesData[selectedSpecies]) {
-            setSelectedSpecies(Object.keys(remote.speciesData)[0]);
+            setSelectedSpecies(Object.keys(remote.speciesData)[0] || '삼치');
           }
         }
         if (remote.auctionUpdatedAt) {
@@ -322,7 +341,8 @@ export default function App() {
   const persistDashboardState = async (overrides = {}) => {
     const nextPin = overrides.pin !== undefined ? overrides.pin : savedPin;
     const nextPartners = overrides.partners !== undefined ? overrides.partners : partners;
-    const nextSpecies = overrides.speciesData !== undefined ? overrides.speciesData : speciesData;
+    const nextSpecies =
+      overrides.speciesData !== undefined ? overrides.speciesData : safeSpeciesData;
     const nextFeeds = overrides.snsFeeds !== undefined ? overrides.snsFeeds : snsFeeds;
     const nextTopIng =
       overrides.topIngredients !== undefined ? overrides.topIngredients : topIngredientsState;
@@ -391,18 +411,17 @@ export default function App() {
     }
   };
 
-  // 전 어종 시세 일괄 갱신 (12시 자동 갱신 및 실시간 수동 갱신 공용)
   const refreshAllSpeciesAuction = async (isAutoNoon = false) => {
     if (isRefreshingAuction) return;
     setIsRefreshingAuction(true);
 
     const schedule = getKstScheduleInfo();
-    const keys = Object.keys(speciesData);
-    const updatedMap = { ...speciesData };
+    const keys = Object.keys(safeSpeciesData);
+    const updatedMap = { ...safeSpeciesData };
     let liveUpdatedCount = 0;
 
     for (const spKey of keys) {
-      const existing = speciesData[spKey];
+      const existing = safeSpeciesData[spKey];
       const marketNames =
         Array.isArray(existing?.markets) && existing.markets.length > 0
           ? existing.markets.map((m) => m.market)
@@ -445,7 +464,6 @@ export default function App() {
     }
   };
 
-  // 매일 낮 12:00(KST) 자동 시세 갱신 스케줄러
   useEffect(() => {
     if (!isDataLoaded || !isUnlocked) return;
 
@@ -461,9 +479,8 @@ export default function App() {
     return () => clearInterval(timer);
   }, [isDataLoaded, isUnlocked, lastNoonSyncDate]);
 
-  // 위판장 목록·시세 직접 수정 반영
   const handleUpdateSpeciesMarkets = async (spName, updatedMarkets) => {
-    const target = speciesData[spName];
+    const target = safeSpeciesData[spName];
     if (!target) return;
 
     const validPrices = updatedMarkets
@@ -478,7 +495,7 @@ export default function App() {
     const diffRate =
       prevAvg > 0 ? Number((((newAvg - prevAvg) / prevAvg) * 100).toFixed(1)) : 0;
 
-    const updatedHistory7d = [...target.history7d];
+    const updatedHistory7d = [...(target.history7d || [])];
     if (updatedHistory7d.length > 0) {
       updatedHistory7d[updatedHistory7d.length - 1] = {
         ...updatedHistory7d[updatedHistory7d.length - 1],
@@ -487,7 +504,7 @@ export default function App() {
     }
 
     const nextSpeciesData = {
-      ...speciesData,
+      ...safeSpeciesData,
       [spName]: {
         ...target,
         currentAvg: newAvg,
@@ -553,7 +570,7 @@ export default function App() {
           payload: {
             pin: savedPin,
             partners,
-            speciesData,
+            speciesData: safeSpeciesData,
             snsFeeds,
             topIngredients: topIngredientsState,
             auctionUpdatedAt,
@@ -672,7 +689,7 @@ export default function App() {
     const keyword = speciesSearchInput.trim();
     if (!keyword) return;
 
-    if (speciesData[keyword]) {
+    if (safeSpeciesData[keyword]) {
       setSelectedSpecies(keyword);
       setSpeciesSearchInput('');
       showToast(`이미 등록된 '${keyword}' 위판 시세 추이로 전환했습니다.`);
@@ -688,7 +705,7 @@ export default function App() {
     setIsSearchingSpecies(false);
 
     if (res && res.data) {
-      const nextSpeciesData = { ...speciesData, [res.data.name]: res.data };
+      const nextSpeciesData = { ...safeSpeciesData, [res.data.name]: res.data };
       setSpeciesData(nextSpeciesData);
       setSelectedSpecies(res.data.name);
       setSpeciesSearchInput('');
@@ -832,15 +849,19 @@ export default function App() {
   }, [filteredPartners, currentPage, totalPages]);
 
   const kpiSummary = useMemo(() => {
-    const topItem = topIngredientsState.items[0] || {
+    const topItem = (topIngredientsState?.items || [])[0] || {
       name: '서치 대기',
       count: 0,
       share: '0',
     };
-    const allSpecies = Object.values(speciesData);
-    const avgChange = (
-      allSpecies.reduce((acc, s) => acc + s.prevDiffRate, 0) / allSpecies.length
-    ).toFixed(1);
+    const allSpecies = Object.values(safeSpeciesData);
+    const avgChange =
+      allSpecies.length > 0
+        ? (
+            allSpecies.reduce((acc, s) => acc + Number(s?.prevDiffRate || 0), 0) /
+            allSpecies.length
+          ).toFixed(1)
+        : '0.0';
     const activePartnerCount = partners.filter((p) => p.status === '활발').length;
     const totalWeeklyVolume = partners.reduce(
       (acc, p) => acc + Number(p.totalVolume || 0),
@@ -854,7 +875,7 @@ export default function App() {
       activePartnerCount,
       totalWeeklyVolume,
     };
-  }, [topIngredientsState, speciesData, partners]);
+  }, [topIngredientsState, safeSpeciesData, partners]);
 
   const handleSearchSinglePartnerMenu = async (partner) => {
     if (searchingPartnerIds[partner.id]) return;
@@ -1217,18 +1238,21 @@ export default function App() {
     if (!newAuctionForm.price) return;
 
     const targetSpecies = newAuctionForm.species;
+    const baseTarget = safeSpeciesData[targetSpecies] || Object.values(safeSpeciesData)[0];
     const newPrice = Number(newAuctionForm.price);
-    const prevAvg = speciesData[targetSpecies].currentAvg;
+    const prevAvg = baseTarget.currentAvg;
     const diffAmount = newPrice - prevAvg;
     const diffRate = prevAvg > 0 ? Number(((diffAmount / prevAvg) * 100).toFixed(1)) : 0;
 
-    const updatedHistory7d = [...speciesData[targetSpecies].history7d];
-    updatedHistory7d[updatedHistory7d.length - 1] = {
-      ...updatedHistory7d[updatedHistory7d.length - 1],
-      price: newPrice,
-    };
+    const updatedHistory7d = [...(baseTarget.history7d || [])];
+    if (updatedHistory7d.length > 0) {
+      updatedHistory7d[updatedHistory7d.length - 1] = {
+        ...updatedHistory7d[updatedHistory7d.length - 1],
+        price: newPrice,
+      };
+    }
 
-    const existingMarkets = speciesData[targetSpecies].markets || [];
+    const existingMarkets = baseTarget.markets || [];
     const hasMarket = existingMarkets.some((m) => m.market === newAuctionForm.market);
     const updatedMarkets = hasMarket
       ? existingMarkets.map((m) =>
@@ -1254,9 +1278,9 @@ export default function App() {
         ];
 
     const nextSpeciesData = {
-      ...speciesData,
+      ...safeSpeciesData,
       [targetSpecies]: {
-        ...speciesData[targetSpecies],
+        ...baseTarget,
         currentAvg: newPrice,
         prevDiffRate: diffRate,
         history7d: updatedHistory7d,
@@ -1270,7 +1294,6 @@ export default function App() {
     showToast(`${targetSpecies} (${newAuctionForm.market}) 오늘의 위판 시세가 반영되었습니다.`);
   };
 
-  // 보안 게이트 (마스터 PIN 입력 화면)
   if (!isUnlocked || (isChangingPin && isUnlocked)) {
     const isChangeMode = isChangingPin && isUnlocked;
     return (
@@ -1595,7 +1618,7 @@ export default function App() {
         </section>
 
         <AuctionSection
-          speciesData={speciesData}
+          speciesData={safeSpeciesData}
           selectedSpecies={selectedSpecies}
           setSelectedSpecies={setSelectedSpecies}
           chartPeriod={chartPeriod}
@@ -1799,7 +1822,7 @@ export default function App() {
             availableRegions={availableRegions}
             categoryFilter={categoryFilter}
             setCategoryFilter={setCategoryFilter}
-            speciesKeys={Object.keys(speciesData)}
+            speciesKeys={Object.keys(safeSpeciesData)}
             currentPage={currentPage}
             setCurrentPage={setCurrentPage}
             totalPages={totalPages}
@@ -1839,8 +1862,8 @@ export default function App() {
         newPartnerForm={newPartnerForm}
         setNewPartnerForm={setNewPartnerForm}
         onAddPartner={handleAddPartner}
-        speciesKeys={Object.keys(speciesData)}
-        speciesData={speciesData}
+        speciesKeys={Object.keys(safeSpeciesData)}
+        speciesData={safeSpeciesData}
         newAuctionForm={newAuctionForm}
         setNewAuctionForm={setNewAuctionForm}
         onAddAuction={handleAddAuction}
