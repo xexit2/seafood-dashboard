@@ -12,6 +12,7 @@ import {
   Check,
   X,
 } from './Icons';
+import { INITIAL_SPECIES_DATA } from '../constants/initialData';
 
 const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
 
@@ -31,15 +32,22 @@ export default function AuctionSection({
   onRefreshAuctionNow,
   onUpdateSpeciesMarkets,
 }) {
-  const currentSpecies =
-    speciesData[selectedSpecies] || Object.values(speciesData)[0];
-  const chartData =
-    chartPeriod === '7d' ? currentSpecies.history7d : currentSpecies.history30d;
+  const safeSpeciesData =
+    speciesData && typeof speciesData === 'object' && Object.keys(speciesData).length > 0
+      ? speciesData
+      : INITIAL_SPECIES_DATA;
 
-  // 위판장 목록 인라인 편집 상태
+  const speciesKeys = Object.keys(safeSpeciesData);
+  const currentSpecies =
+    safeSpeciesData[selectedSpecies] || safeSpeciesData[speciesKeys[0]];
+  const chartData =
+    chartPeriod === '7d' ? currentSpecies?.history7d : currentSpecies?.history30d;
+
   const [isEditingMarkets, setIsEditingMarkets] = useState(false);
   const [draftMarkets, setDraftMarkets] = useState([]);
   const [newMarketName, setNewMarketName] = useState('');
+
+  if (!currentSpecies) return null;
 
   const handleStartEditMarkets = () => {
     setDraftMarkets(
@@ -94,7 +102,7 @@ export default function AuctionSection({
     const valid = draftMarkets.filter((m) => String(m.market || '').trim() !== '');
     if (valid.length === 0) return;
     if (onUpdateSpeciesMarkets) {
-      onUpdateSpeciesMarkets(selectedSpecies, valid);
+      onUpdateSpeciesMarkets(selectedSpecies || speciesKeys[0], valid);
     }
     setIsEditingMarkets(false);
   };
@@ -165,14 +173,14 @@ export default function AuctionSection({
           </form>
 
           <div className="flex flex-wrap items-center gap-1.5">
-            {Object.keys(speciesData).map((sp) => {
-              const rate = speciesData[sp].prevDiffRate;
+            {speciesKeys.map((sp) => {
+              const rate = safeSpeciesData[sp]?.prevDiffRate ?? 0;
               const isSelected = selectedSpecies === sp;
               return (
                 <button
                   key={sp}
                   onClick={() => {
-                    setSelectedSpecies(sp);
+                    setSelectedSpecies && setSelectedSpecies(sp);
                     setIsEditingMarkets(false);
                   }}
                   className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all cursor-pointer flex items-center gap-1.5 ${
@@ -238,7 +246,7 @@ export default function AuctionSection({
 
             <div className="inline-flex rounded-lg bg-slate-200/70 p-0.5">
               <button
-                onClick={() => setChartPeriod('7d')}
+                onClick={() => setChartPeriod && setChartPeriod('7d')}
                 className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                   chartPeriod === '7d'
                     ? 'bg-white text-slate-900 shadow-2xs'
@@ -248,7 +256,7 @@ export default function AuctionSection({
                 최근 7일
               </button>
               <button
-                onClick={() => setChartPeriod('30d')}
+                onClick={() => setChartPeriod && setChartPeriod('30d')}
                 className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                   chartPeriod === '30d'
                     ? 'bg-white text-slate-900 shadow-2xs'
@@ -442,7 +450,7 @@ export default function AuctionSection({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs">
-                    {currentSpecies.markets.map((m, idx) => (
+                    {(currentSpecies.markets || []).map((m, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
                         <td className="py-3 px-3.5">
                           <div className="font-semibold text-slate-800">{m.market}</div>
