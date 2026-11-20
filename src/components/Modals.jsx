@@ -41,6 +41,8 @@ export default function Modals({
   setNewAuctionForm,
   onAddAuction,
 }) {
+  const safeSpeciesMap = speciesData && typeof speciesData === 'object' ? speciesData : {};
+  const safeSpeciesKeys = Array.isArray(speciesKeys) && speciesKeys.length > 0 ? speciesKeys : Object.keys(safeSpeciesMap);
   if (!activeModal) return null;
 
   return (
