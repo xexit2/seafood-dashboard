@@ -728,7 +728,8 @@ export default function App() {
     const total = partners.length;
     setSearchProgress({ done: 0, total });
 
-    const ingredientCounts = {};
+    // 원재료별 매칭 거래처 목록 맵: { '삼치': [{ id, companyName, address }, ...] }
+    const ingredientPartnersMap = {};
     let analyzedCount = 0;
     let omittedCount = 0;
     let lastError = '';
@@ -743,7 +744,6 @@ export default function App() {
         lastError = batchRes.error;
       }
 
-      // 429 사용 한도 초과 시 연쇄 호출 없이 즉시 전체 루프 중단
       if (batchRes.isRateLimit) {
         hitRateLimit = true;
         break;
@@ -761,7 +761,16 @@ export default function App() {
           analyzedCount += 1;
           const uniqueIngs = Array.from(new Set(ings));
           uniqueIngs.forEach((ing) => {
-            ingredientCounts[ing] = (ingredientCounts[ing] || 0) + 1;
+            if (!ingredientPartnersMap[ing]) {
+              ingredientPartnersMap[ing] = [];
+            }
+            if (!ingredientPartnersMap[ing].some((item) => item.id === p.id)) {
+              ingredientPartnersMap[ing].push({
+                id: p.id,
+                companyName: p.companyName,
+                address: p.address || '',
+              });
+            }
           });
         }
       });
@@ -774,16 +783,17 @@ export default function App() {
       }
     }
 
-    const sorted = Object.entries(ingredientCounts)
-      .sort((a, b) => b[1] - a[1])
+    const sorted = Object.entries(ingredientPartnersMap)
+      .sort((a, b) => b[1].length - a[1].length)
       .slice(0, 5);
-    const totalMentions = sorted.reduce((acc, [, cnt]) => acc + cnt, 0) || 1;
+    const totalMentions = sorted.reduce((acc, [, pList]) => acc + pList.length, 0) || 1;
 
-    const top5Items = sorted.map(([name, count], idx) => ({
+    const top5Items = sorted.map(([name, pList], idx) => ({
       rank: idx + 1,
       name,
-      count,
-      share: ((count / totalMentions) * 100).toFixed(1),
+      count: pList.length,
+      share: ((pList.length / totalMentions) * 100).toFixed(1),
+      partners: pList,
     }));
 
     const schedule = getKstScheduleInfo();
@@ -1809,6 +1819,7 @@ export default function App() {
         <section className="space-y-6">
           <TopIngredientsSection
             partnersCount={partners.length}
+            partners={partners}
             topIngredientsState={topIngredientsState}
             isSearchingTopIngredients={isSearchingTopIngredients}
             searchProgress={searchProgress}

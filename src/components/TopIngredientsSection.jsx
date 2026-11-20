@@ -1,14 +1,19 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Sparkles,
   Loader2,
   CheckCircle2,
   AlertTriangle,
   X,
+  BookOpen,
+  ExternalLink,
+  Building2,
 } from './Icons';
+import { buildRegionCompanyQuery } from '../utils/excelParser';
 
 export default function TopIngredientsSection({
   partnersCount,
+  partners = [],
   topIngredientsState,
   isSearchingTopIngredients,
   searchProgress,
@@ -18,7 +23,44 @@ export default function TopIngredientsSection({
   const { items = [], updatedAt = '', analyzedCount = 0, omittedCount = 0, lastError = '' } =
     topIngredientsState || {};
 
+  const [selectedIngredientName, setSelectedIngredientName] = useState('');
+
   const maxCount = Math.max(1, ...items.map((it) => Number(it.count) || 0));
+
+  // 선택된 원재료 객체 및 해당 원재료 취급 거래처 목록 계산
+  const selectedItem = useMemo(() => {
+    if (!selectedIngredientName) return null;
+    return items.find((it) => it.name === selectedIngredientName) || null;
+  }, [items, selectedIngredientName]);
+
+  const matchedPartners = useMemo(() => {
+    if (!selectedItem) return [];
+    // 1순위: AI 서치 시 함께 저장된 partners 배열
+    if (Array.isArray(selectedItem.partners) && selectedItem.partners.length > 0) {
+      return selectedItem.partners;
+    }
+    // 2순위: 기존 저장 데이터 호환을 위해 전체 partners 목록에서 키워드 매칭
+    const kw = String(selectedItem.name || '').trim();
+    if (!kw || !Array.isArray(partners)) return [];
+    return partners
+      .filter(
+        (p) =>
+          String(p.mainProduct || '').includes(kw) ||
+          String(p.topReviewMenu || '').includes(kw) ||
+          String(p.category || '').includes(kw) ||
+          (Array.isArray(p.searchedMenus) &&
+            p.searchedMenus.some((m) => String(m).includes(kw)))
+      )
+      .map((p) => ({
+        id: p.id,
+        companyName: p.companyName,
+        address: p.address || '',
+      }));
+  }, [selectedItem, partners]);
+
+  const handleToggleIngredient = (name) => {
+    setSelectedIngredientName((prev) => (prev === name ? '' : name));
+  };
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
@@ -36,7 +78,7 @@ export default function TopIngredientsSection({
             )}
           </div>
           <p className="text-xs text-slate-500 mt-0.5">
-            등록 거래처의 네이버 메뉴·리뷰에서 음식명이 아닌 <strong>메인 원재료</strong>만 AI 서치해 빈도 TOP 5를 산출합니다. (버튼 클릭 시에만 갱신 · 확인 불가 재료 생략)
+            등록 거래처의 네이버 메뉴·리뷰에서 <strong>메인 원재료</strong>만 AI 서치해 빈도 TOP 5를 산출합니다. <strong>원재료 카드를 클릭하면 확인 거래처 목록과 네이버 메뉴 링크가 열립니다.</strong>
           </p>
         </div>
 
@@ -82,8 +124,8 @@ export default function TopIngredientsSection({
             <strong className="text-emerald-700">확인 {analyzedCount}개사</strong> · 확인 불가{' '}
             <strong>{omittedCount}개사</strong> 생략
           </div>
-          <div className="text-[11px] text-slate-400">
-            PC·모바일 클라우드 자동 동기화됨
+          <div className="text-[11px] text-sky-700 font-semibold">
+            원재료를 클릭해 취급 거래처 확인 가능
           </div>
         </div>
       )}
@@ -116,6 +158,7 @@ export default function TopIngredientsSection({
                   100,
                   Math.round(((Number(item.count) || 0) / maxCount) * 100)
                 );
+                const isSelected = selectedIngredientName === item.name;
                 const barColor =
                   idx === 0
                     ? 'bg-sky-600'
@@ -125,7 +168,14 @@ export default function TopIngredientsSection({
                     ? 'bg-sky-400'
                     : 'bg-slate-400';
                 return (
-                  <div key={item.name} className="space-y-1">
+                  <button
+                    key={item.name}
+                    type="button"
+                    onClick={() => handleToggleIngredient(item.name)}
+                    className={`w-full text-left space-y-1 p-1.5 rounded-lg transition-colors cursor-pointer ${
+                      isSelected ? 'bg-sky-100/70' : 'hover:bg-slate-100'
+                    }`}
+                  >
                     <div className="flex items-center justify-between text-xs">
                       <span className="font-bold text-slate-800">{item.name}</span>
                       <span className="text-[11px] font-semibold text-slate-500">
@@ -138,7 +188,7 @@ export default function TopIngredientsSection({
                         style={{ width: `${pct}%` }}
                       />
                     </div>
-                  </div>
+                  </button>
                 );
               })}
             </div>
@@ -151,38 +201,124 @@ export default function TopIngredientsSection({
               서치 완료 시 상위 5개 메인 원재료와 취급 거래처 수가 이곳에 카드 형태로 정리됩니다.
             </div>
           ) : (
-            items.map((item) => (
-              <div
-                key={item.name}
-                className="p-3.5 rounded-xl bg-slate-50 border border-slate-100 flex flex-col justify-between"
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold ${
-                        item.rank === 1
-                          ? 'bg-sky-600 text-white'
-                          : item.rank === 2
-                          ? 'bg-sky-100 text-sky-800'
-                          : 'bg-slate-200 text-slate-700'
-                      }`}
-                    >
-                      {item.rank}
+            items.map((item) => {
+              const isSelected = selectedIngredientName === item.name;
+              return (
+                <button
+                  key={item.name}
+                  type="button"
+                  onClick={() => handleToggleIngredient(item.name)}
+                  className={`text-left p-3.5 rounded-xl border transition-all flex flex-col justify-between cursor-pointer ${
+                    isSelected
+                      ? 'bg-sky-50 border-sky-500 ring-2 ring-sky-200 shadow-xs'
+                      : 'bg-slate-50 border-slate-100 hover:border-sky-300 hover:bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`w-5 h-5 rounded-md flex items-center justify-center text-xs font-bold ${
+                          item.rank === 1
+                            ? 'bg-sky-600 text-white'
+                            : item.rank === 2
+                            ? 'bg-sky-100 text-sky-800'
+                            : 'bg-slate-200 text-slate-700'
+                        }`}
+                      >
+                        {item.rank}
+                      </span>
+                      <span className="font-bold text-sm text-slate-900">{item.name}</span>
+                    </div>
+                    <span className="text-[11px] font-bold text-sky-700 bg-sky-100/70 px-1.5 py-0.5 rounded">
+                      {item.share}%
                     </span>
-                    <span className="font-bold text-sm text-slate-900">{item.name}</span>
                   </div>
-                  <span className="text-[11px] font-bold text-sky-700 bg-sky-100/70 px-1.5 py-0.5 rounded">
-                    {item.share}%
-                  </span>
-                </div>
-                <div className="text-xs text-slate-500">
-                  확인 거래처 <strong>{item.count}개사</strong> 주력 원재료
-                </div>
-              </div>
-            ))
+                  <div className="flex items-center justify-between text-xs text-slate-500 mt-1">
+                    <span>
+                      확인 거래처 <strong>{item.count}개사</strong>
+                    </span>
+                    <span className="text-[11px] font-semibold text-sky-600">
+                      {isSelected ? '접기 ▲' : '업체 보기 ▼'}
+                    </span>
+                  </div>
+                </button>
+              );
+            })
           )}
         </div>
       </div>
+
+      {/* 선택된 원재료의 확인 거래처 목록 및 네이버 메뉴 바로가기 패널 */}
+      {selectedItem && (
+        <div className="mt-5 p-4 rounded-xl bg-gradient-to-r from-sky-50/90 via-white to-emerald-50/50 border border-sky-200 space-y-3">
+          <div className="flex items-center justify-between gap-2 pb-2 border-b border-sky-100">
+            <div className="flex items-center gap-2 flex-wrap">
+              <Building2 className="w-4 h-4 text-sky-600" />
+              <h3 className="text-sm font-bold text-slate-900">
+                &lsquo;{selectedItem.name}&rsquo; 주력 사용 확인 거래처 목록
+              </h3>
+              <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-sky-600 text-white">
+                {matchedPartners.length > 0
+                  ? `${matchedPartners.length}개사`
+                  : `${selectedItem.count}개사`}
+              </span>
+              <span className="text-[11px] text-slate-500">
+                (업체를 클릭하면 네이버 메뉴 페이지로 바로 이동합니다)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedIngredientName('')}
+              className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+              title="목록 닫기"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {matchedPartners.length === 0 ? (
+            <div className="p-4 rounded-lg bg-white border border-slate-200 text-xs text-slate-600 leading-relaxed">
+              이전에 저장된 집계 데이터에는 개별 업체 매핑 정보가 포함되어 있지 않습니다. 우측 상단{' '}
+              <strong>[TOP 5 메인재료 서치]</strong>를 한 번 더 실행하시면 업체별 네이버 메뉴 바로가기 목록이 자동 저장됩니다.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-64 overflow-y-auto pr-1">
+              {matchedPartners.map((p, idx) => {
+                const combinedQuery = buildRegionCompanyQuery(p.companyName, p.address);
+                const naverMenuUrl = `https://search.naver.com/search.naver?query=${encodeURIComponent(
+                  `${combinedQuery} 메뉴`
+                )}`;
+
+                return (
+                  <a
+                    key={p.id || `${p.companyName}-${idx}`}
+                    href={naverMenuUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group p-3 rounded-xl bg-white border border-slate-200 hover:border-emerald-400 hover:shadow-xs transition-all flex items-center justify-between gap-2"
+                    title={`${combinedQuery} 네이버 메뉴 새 탭에서 열기`}
+                  >
+                    <div className="min-w-0">
+                      <div className="font-bold text-xs text-slate-900 group-hover:text-emerald-700 truncate">
+                        {p.companyName}
+                      </div>
+                      <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                        {p.address || '소재지 정보 없음'}
+                      </div>
+                    </div>
+
+                    <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 group-hover:bg-emerald-600 group-hover:text-white transition-colors shrink-0">
+                      <BookOpen className="w-3 h-3" />
+                      네이버 메뉴
+                      <ExternalLink className="w-3 h-3" />
+                    </span>
+                  </a>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
