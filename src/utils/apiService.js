@@ -24,83 +24,7 @@ function parseFlexibleJson(rawText) {
   }
 }
 
-async function callGeminiWithFallback(userQuery, geminiApiKey = '', useSearch = true) {
-  const apiKey = (geminiApiKey || '').trim();
-  if (!apiKey) {
-    return { ok: false, text: '', error: 'Gemini API 키가 설정되지 않았습니다.' };
-  }
-
-  // 무료 할당량 효율이 높은 모델 순서로 배치
-  const models = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-3-flash-preview'];
-  let lastErrMsg = '';
-
-  for (const model of models) {
-    const baseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-    const reqHeaders = {
-      'Content-Type': 'application/json',
-      'x-goog-api-key': apiKey,
-    };
-
-    const payload = {
-      contents: [{ parts: [{ text: userQuery }] }],
-      ...(useSearch ? { tools: [{ google_search: {} }] } : {}),
-    };
-
-    try {
-      const response = await fetch(baseUrl, {
-        method: 'POST',
-        headers: reqHeaders,
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errBody = await response.text().catch(() => '');
-        lastErrMsg = `HTTP ${response.status}: ${errBody.slice(0, 120)}`;
-        // 429(분당 한도 초과) 시 2.5초 대기 후 다음 모델로 전환
-        if (response.status === 429) {
-          await new Promise((r) => setTimeout(r, 2500));
-          continue;
-        }
-        continue;
-      }
-
-      const result = await response.json();
-      const parts = result?.candidates?.[0]?.content?.parts || [];
-      const rawText = parts.map((p) => p.text || '').join('\n').trim();
-      if (rawText) {
-        return { ok: true, text: rawText, error: '' };
-      }
-      lastErrMsg = '응답 텍스트 비어 있음';
-    } catch (err) {
-      lastErrMsg = err?.message || '네트워크 오류';
-      await new Promise((r) => setTimeout(r, 800));
-    }
-  }
-
-  return { ok: false, text: '', error: lastErrMsg || 'API 호출 한도 초과(429)' };
-}
-
-export async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
-  const combinedQuery = buildRegionCompanyQuery(partner.companyName, partner.address);
-  const tagKeyword = combinedQuery.replace(/\s+/g, '');
-  const defaultInstaSearchUrl = `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`;
-  const naverPlaceMenuUrl = `https://search.naver.com/search.naver?query=${encodeURIComponent(
-    `${combinedQuery} 메뉴`
-  )}`;
-
-  const userQuery = `대한민국 업체 "${combinedQuery}" (상세주소: ${partner.address})의 네이버 플레이스(map.naver.com) 메뉴판 및 방문자 별점 5점(최고평점/호평) 리뷰와 네이버 블로그 후기를 분석해줘.
-중요 규칙:
-1. 네이버 플레이스 방문자 리뷰(특히 5점 만점 호평 리뷰 및 추천 리뷰)에서 고객들이 가장 많이 언급하고 극찬한 대표 메뉴 1순위를 "topReviewMenu"에 넣어줘.
-2. 네이버 플레이스 메뉴판이나 블로그 리뷰에서 실제로 확인되는 전체 대표 메뉴 목록을 "menus" 배열에 넣어줘.
-3. 추측하거나 지어내지 말고, 검색 결과에서 확인되지 않으면 "topReviewMenu"는 빈 문자열 "", "menus"는 빈 배열 [] 로 반환해줘.
-4. 반드시 순수 JSON 객체만 반환해줘:
-{
-  "topReviewMenu": "네이버 5점 리뷰 최다 언급 1위 메뉴명",
-  "menus": ["5점 리뷰 최다 언급 메뉴1", "메뉴2", "메뉴3"],
-  "blogUrl": "확인된 네이버 플레이스 또는 블로그 URL (없으면 빈 문자열)",
-  "summary": "네이버 5점 리뷰에서 가장 많이 언급된 메뉴와 고객 평가 특징 1~2문장 요약"
-}`;
-
+// 429(사용 한도 초과) 발생 시 연쇄 호출이나 재시도 없이 즉시 중단하는 단일 호출 함수
 async function callGeminiWithFallback(userQuery, geminiApiKey = '', useSearch = true) {
   const apiKey = (geminiApiKey || '').trim();
   if (!apiKey) {
@@ -132,7 +56,6 @@ async function callGeminiWithFallback(userQuery, geminiApiKey = '', useSearch = 
     });
 
     if (!response.ok) {
-      // 429(사용 한도 초과) 발생 시 연쇄 호출이나 재시도 없이 즉시 중단
       if (response.status === 429) {
         return {
           ok: false,
@@ -175,6 +98,53 @@ async function callGeminiWithFallback(userQuery, geminiApiKey = '', useSearch = 
   }
 }
 
+export async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
+  const combinedQuery = buildRegionCompanyQuery(partner.companyName, partner.address);
+  const tagKeyword = combinedQuery.replace(/\s+/g, '');
+  const defaultInstaSearchUrl = `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`;
+  const naverPlaceMenuUrl = `https://search.naver.com/search.naver?query=${encodeURIComponent(
+    `${combinedQuery} 메뉴`
+  )}`;
+
+  const userQuery = `대한민국 업체 "${combinedQuery}" (상세주소: ${partner.address})의 네이버 플레이스(map.naver.com) 메뉴판 및 방문자 별점 5점(최고평점/호평) 리뷰와 네이버 블로그 후기를 분석해줘.
+중요 규칙:
+1. 네이버 플레이스 방문자 리뷰(특히 5점 만점 호평 리뷰 및 추천 리뷰)에서 고객들이 가장 많이 언급하고 극찬한 대표 메뉴 1순위를 "topReviewMenu"에 넣어줘.
+2. 네이버 플레이스 메뉴판이나 블로그 리뷰에서 실제로 확인되는 전체 대표 메뉴 목록을 "menus" 배열에 넣어줘.
+3. 추측하거나 지어내지 말고, 검색 결과에서 확인되지 않으면 "topReviewMenu"는 빈 문자열 "", "menus"는 빈 배열 [] 로 반환해줘.
+4. 반드시 순수 JSON 객체만 반환해줘:
+{
+  "topReviewMenu": "네이버 5점 리뷰 최다 언급 1위 메뉴명",
+  "menus": ["5점 리뷰 최다 언급 메뉴1", "메뉴2", "메뉴3"],
+  "blogUrl": "확인된 네이버 플레이스 또는 블로그 URL (없으면 빈 문자열)",
+  "summary": "네이버 5점 리뷰에서 가장 많이 언급된 메뉴와 고객 평가 특징 1~2문장 요약"
+}`;
+
+  const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
+  if (res.ok) {
+    const parsed = parseFlexibleJson(res.text);
+    if (parsed) {
+      const validMenus = Array.isArray(parsed.menus)
+        ? parsed.menus.map((m) => String(m).trim()).filter(Boolean)
+        : [];
+      const topMenu = String(parsed.topReviewMenu || '').trim() || validMenus[0] || '';
+      return {
+        topReviewMenu: topMenu,
+        menus: validMenus,
+        instagramHandle: `#${tagKeyword}`,
+        instagramUrl: defaultInstaSearchUrl,
+        blogUrl:
+          parsed.blogUrl && parsed.blogUrl.startsWith('http')
+            ? parsed.blogUrl
+            : naverPlaceMenuUrl,
+        summary:
+          parsed.summary ||
+          (topMenu
+            ? `[${combinedQuery}] 네이버 5점 리뷰 최다 언급 메뉴는 '${topMenu}'입니다.`
+            : `[${combinedQuery}] 네이버 플레이스 리뷰 및 메뉴판에서 직접 확인이 필요합니다.`),
+      };
+    }
+  }
+
   return {
     topReviewMenu: '',
     menus: [],
@@ -189,7 +159,7 @@ async function callGeminiWithFallback(userQuery, geminiApiKey = '', useSearch = 
 
 export async function searchTopIngredientsBatch(partnersBatch, geminiApiKey = '') {
   if (!Array.isArray(partnersBatch) || partnersBatch.length === 0) {
-    return { items: [], error: '' };
+    return { items: [], error: '', isRateLimit: false };
   }
 
   const listText = partnersBatch
@@ -200,7 +170,6 @@ export async function searchTopIngredientsBatch(partnersBatch, geminiApiKey = ''
     .join('\n');
 
   const userQuery = `다음 대한민국 식당/수산 업체들의 네이버 플레이스 메뉴와 방문자 리뷰를 검색해서, 각 업체가 주력으로 사용하는 "메인 식재료(원재료)"만 추출해줘.
-  
 
 [업체 목록]
 ${listText}
@@ -215,7 +184,7 @@ ${listText}
   ]
 }`;
 
- const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
+  const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
   if (!res.ok) {
     return { items: [], error: res.error, isRateLimit: res.isRateLimit };
   }
@@ -248,10 +217,158 @@ ${listText}
     };
   });
 
-  return { items, error: '' };
+  return { items, error: '', isRateLimit: false };
 }
 
-// 부산 인근 · 남해 주요 위판장 기준 어종 시세 조회 및 갱신
+// 오늘(KST) 기준 최근 7일 · 30일 날짜 라벨 배열 생성
+function buildRecentDateLabels() {
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const labels7d = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    labels7d.push(`${mm}/${dd}`);
+  }
+  const labels30d = [];
+  for (let i = 4; i >= 0; i--) {
+    const d = new Date(now.getTime() - i * 7 * 24 * 60 * 60 * 1000);
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
+    labels30d.push(`${mm}/${dd}`);
+  }
+  return { labels7d, labels30d, todayLabel: labels7d[6] };
+}
+
+function normalizeHistoryDates(rawHistory, targetLabels, fallbackPrice) {
+  const basePrice = Number(fallbackPrice) || 35000;
+  const list = Array.isArray(rawHistory) ? rawHistory : [];
+  return targetLabels.map((label, idx) => {
+    const item = list[idx] || list[list.length - 1];
+    const price = Number(item?.price) || basePrice;
+    return { date: label, price };
+  });
+}
+
+// 등록된 전체 어종 시세를 단 1회 AI 호출로 일괄 갱신 (429 한도 초과 방지 + 날짜 강제 최신화)
+export async function fetchAllSpeciesAuctionBatch(
+  speciesMap,
+  geminiApiKey = '',
+  defaultMarkets = DEFAULT_SOUTH_MARKETS
+) {
+  const keys = Object.keys(speciesMap || {});
+  const { labels7d, labels30d, todayLabel } = buildRecentDateLabels();
+
+  const speciesSpecs = keys
+    .map((k) => {
+      const sp = speciesMap[k];
+      const mList =
+        Array.isArray(sp?.markets) && sp.markets.length > 0
+          ? sp.markets.map((m) => m.market)
+          : defaultMarkets;
+      return `- ${k} (규격: ${sp?.grade || '표준'}, 단위: ${sp?.unit || '원/kg'}, 위판장: ${mList.join(', ')})`;
+    })
+    .join('\n');
+
+  const userQuery = `오늘(${todayLabel}) 기준 대한민국 부산 인근 및 남해권 주요 수협 위판장의 아래 수산물 어종별 최신 도매 위판 시세(낙찰가)를 검색해서 JSON으로 정리해줘.
+
+[조회 대상 어종 및 위판장]
+${speciesSpecs}
+
+[필수 규칙]
+1. 반드시 모든 대상 어종(${keys.join(', ')})을 포함하고, 각 어종마다 지정된 위판장 목록의 당일 시세(price), 전일대비(diff), 물량(volume), 동향(status: 급등/강세/상승/보합/약세 중 택1)을 채워줘.
+2. history7d는 최근 7일(${labels7d.join(', ')}) 순서대로 7개, history30d는 최근 30일(${labels30d.join(', ')}) 순서대로 5개 가격을 넣어줘.
+3. 설명 없이 반드시 아래 순수 JSON 객체만 출력해줘:
+{
+  "species": {
+    "${keys[0] || '삼치'}": {
+      "currentAvg": 64000,
+      "prevDiffRate": 2.5,
+      "history7d": [
+        { "date": "${labels7d[0]}", "price": 61000 },
+        { "date": "${labels7d[6]}", "price": 64000 }
+      ],
+      "history30d": [
+        { "date": "${labels30d[0]}", "price": 58000 },
+        { "date": "${labels30d[4]}", "price": 64000 }
+      ],
+      "markets": [
+        { "market": "부산공동어시장", "price": 64500, "diff": 1500, "volume": "1,800 상자", "status": "상승" }
+      ]
+    }
+  }
+}`;
+
+  const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
+  const parsed = res.ok ? parseFlexibleJson(res.text) : null;
+  const parsedSpeciesObj = parsed?.species || parsed || {};
+
+  const updatedMap = {};
+  let liveUpdatedCount = 0;
+
+  for (const k of keys) {
+    const existing = speciesMap[k];
+    const found = parsedSpeciesObj[k];
+    const marketList =
+      Array.isArray(existing?.markets) && existing.markets.length > 0
+        ? existing.markets.map((m) => m.market)
+        : defaultMarkets;
+
+    if (found && Number(found.currentAvg) > 0) {
+      liveUpdatedCount += 1;
+      const newAvg = Number(found.currentAvg);
+      const rawMarkets = Array.isArray(found.markets) ? found.markets : [];
+      const normalizedMarkets = marketList.map((mName, idx) => {
+        const matchedM =
+          rawMarkets.find(
+            (pm) =>
+              String(pm?.market || '').includes(mName.replace('위판장', '')) ||
+              mName.includes(String(pm?.market || ''))
+          ) || rawMarkets[idx];
+
+        return {
+          market: mName,
+          price: Number(matchedM?.price) || newAvg,
+          diff: Number(matchedM?.diff) || 0,
+          volume: String(matchedM?.volume || existing?.markets?.[idx]?.volume || '집계중'),
+          status: String(matchedM?.status || '보합'),
+        };
+      });
+
+      const norm7d = normalizeHistoryDates(found.history7d, labels7d, newAvg);
+      norm7d[norm7d.length - 1] = { date: todayLabel, price: newAvg };
+      const norm30d = normalizeHistoryDates(found.history30d, labels30d, newAvg);
+      norm30d[norm30d.length - 1] = { date: todayLabel, price: newAvg };
+
+      updatedMap[k] = {
+        ...existing,
+        currentAvg: newAvg,
+        prevDiffRate: Number(found.prevDiffRate) ?? existing.prevDiffRate ?? 0,
+        history7d: norm7d,
+        history30d: norm30d,
+        markets: normalizedMarkets,
+      };
+    } else {
+      const fallbackAvg = Number(existing?.currentAvg) || 35000;
+      const norm7d = normalizeHistoryDates(existing?.history7d, labels7d, fallbackAvg);
+      const norm30d = normalizeHistoryDates(existing?.history30d, labels30d, fallbackAvg);
+      updatedMap[k] = {
+        ...existing,
+        history7d: norm7d,
+        history30d: norm30d,
+      };
+    }
+  }
+
+  return {
+    updatedMap,
+    liveUpdatedCount,
+    isRateLimit: res.isRateLimit,
+    error: res.ok ? '' : res.error,
+  };
+}
+
+// 단일 신규 어종 추가 조회용
 export async function fetchSpeciesAuctionTrend(
   speciesKeyword,
   geminiApiKey = '',
@@ -259,134 +376,33 @@ export async function fetchSpeciesAuctionTrend(
   existingSpecies = null
 ) {
   const cleanName = String(speciesKeyword || '').trim();
-  const marketList =
-    Array.isArray(targetMarkets) && targetMarkets.length > 0
-      ? targetMarkets
-      : DEFAULT_SOUTH_MARKETS;
+  const baseObj = existingSpecies || {
+    name: cleanName,
+    grade: '부산·남해권 위판 표준 규격',
+    unit: '원/kg',
+    currentAvg: 35000,
+    prevDiffRate: 0,
+    history7d: [],
+    history30d: [],
+    markets: targetMarkets.map((m) => ({
+      market: m,
+      price: 35000,
+      diff: 0,
+      volume: '집계중',
+      status: '보합',
+    })),
+  };
 
-  const today = new Date();
-  const mm = String(today.getMonth() + 1).padStart(2, '0');
-  const dd = String(today.getDate()).padStart(2, '0');
-  const todayLabel = `${mm}/${dd}`;
+  const batchRes = await fetchAllSpeciesAuctionBatch(
+    { [cleanName]: baseObj },
+    geminiApiKey,
+    targetMarkets
+  );
 
-  const userQuery = `대한민국 부산 인근 및 남해권 주요 수협 위판장(${marketList.join(
-    ', '
-  )})에서 거래되는 수산물 어종 "${cleanName}"의 오늘(${todayLabel}) 도매 위판 시세(낙찰가)와 위판장별 시세를 검색해서 JSON으로 정리해줘.
-반드시 지정된 위판장 목록(${marketList.join(', ')})을 모두 포함하고, 아래 순수 JSON 형식만 출력해줘:
-{
-  "name": "${cleanName}",
-  "grade": "대표 규격 (예: 특대 10kg 상자 또는 1kg 기준)",
-  "unit": "원/kg 또는 원/상자",
-  "currentAvg": 35000,
-  "prevDiffRate": 2.4,
-  "history7d": [
-    { "date": "11/14", "price": 33500 },
-    { "date": "11/15", "price": 33800 },
-    { "date": "11/16", "price": 34000 },
-    { "date": "11/17", "price": 34200 },
-    { "date": "11/18", "price": 34500 },
-    { "date": "11/19", "price": 34200 },
-    { "date": "${todayLabel}", "price": 35000 }
-  ],
-  "history30d": [
-    { "date": "10/22", "price": 31000 },
-    { "date": "10/29", "price": 32200 },
-    { "date": "11/05", "price": 33000 },
-    { "date": "11/12", "price": 34100 },
-    { "date": "${todayLabel}", "price": 35000 }
-  ],
-  "markets": [
-    ${marketList
-      .map(
-        (m) =>
-          `{ "market": "${m}", "price": 35000, "diff": 800, "volume": "1,200 상자", "status": "상승" }`
-      )
-      .join(',\n    ')}
-  ]
-}`;
-
-  const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
-  if (res.ok) {
-    const parsed = parseFlexibleJson(res.text);
-    if (parsed && parsed.currentAvg && Array.isArray(parsed.markets)) {
-      const normalizedMarkets = marketList.map((mName, idx) => {
-        const found = parsed.markets.find(
-          (pm) =>
-            String(pm.market || '').includes(mName.replace('위판장', '')) ||
-            mName.includes(String(pm.market || ''))
-        ) || parsed.markets[idx];
-
-        return {
-          market: mName,
-          price: Number(found?.price) || Number(parsed.currentAvg) || 35000,
-          diff: Number(found?.diff) || 0,
-          volume: String(found?.volume || '집계중'),
-          status: String(found?.status || '보합'),
-        };
-      });
-
-      return {
-        isFallback: false,
-        data: {
-          name: String(parsed.name || cleanName),
-          grade: String(parsed.grade || existingSpecies?.grade || '남해권 위판 표준 규격'),
-          unit: String(parsed.unit || existingSpecies?.unit || '원/kg'),
-          currentAvg: Number(parsed.currentAvg) || 35000,
-          prevDiffRate: Number(parsed.prevDiffRate) || 0,
-          history7d: Array.isArray(parsed.history7d) && parsed.history7d.length > 0
-            ? parsed.history7d.map((h) => ({
-                date: String(h.date || ''),
-                price: Number(h.price) || 0,
-              }))
-            : existingSpecies?.history7d || [{ date: todayLabel, price: Number(parsed.currentAvg) || 35000 }],
-          history30d: Array.isArray(parsed.history30d) && parsed.history30d.length > 0
-            ? parsed.history30d.map((h) => ({
-                date: String(h.date || ''),
-                price: Number(h.price) || 0,
-              }))
-            : existingSpecies?.history30d || [{ date: todayLabel, price: Number(parsed.currentAvg) || 35000 }],
-          markets: normalizedMarkets,
-        },
-      };
-    }
-  }
-
-  // API 키 미설정 또는 일시 오류 시 기존 시세/표준 시세 유지하면서 부산·남해 위판장 구조 보존
-  const basePrice = existingSpecies?.currentAvg || 35000;
   return {
-    isFallback: true,
-    data: {
-      name: cleanName,
-      grade: existingSpecies?.grade || '부산·남해권 위판 표준 규격 (수동 시세 입력 가능)',
-      unit: existingSpecies?.unit || '원/kg',
-      currentAvg: basePrice,
-      prevDiffRate: existingSpecies?.prevDiffRate ?? 0.0,
-      history7d: existingSpecies?.history7d || [
-        { date: '11/14', price: basePrice },
-        { date: '11/15', price: basePrice },
-        { date: '11/16', price: basePrice },
-        { date: '11/17', price: basePrice },
-        { date: '11/18', price: basePrice },
-        { date: '11/19', price: basePrice },
-        { date: todayLabel, price: basePrice },
-      ],
-      history30d: existingSpecies?.history30d || [
-        { date: '10/22', price: basePrice },
-        { date: '10/29', price: basePrice },
-        { date: '11/05', price: basePrice },
-        { date: '11/12', price: basePrice },
-        { date: todayLabel, price: basePrice },
-      ],
-      markets: marketList.map((mName) => {
-        const prevM = existingSpecies?.markets?.find((m) => m.market === mName);
-        return {
-          market: mName,
-          price: prevM?.price || basePrice,
-          diff: prevM?.diff || 0,
-          volume: prevM?.volume || '집계중',
-          status: prevM?.status || '보합',
-        };
-      }),
-    },
+    isFallback: batchRes.liveUpdatedCount === 0,
+    isRateLimit: batchRes.isRateLimit,
+    error: batchRes.error,
+    data: batchRes.updatedMap[cleanName],
   };
 }
