@@ -14,7 +14,7 @@ import {
 } from './Icons';
 import { INITIAL_SPECIES_DATA } from '../constants/initialData';
 
-const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
+const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(Number(num) || 0);
 
 export default function AuctionSection({
   speciesData,
@@ -48,6 +48,9 @@ export default function AuctionSection({
   const [newMarketName, setNewMarketName] = useState('');
 
   if (!currentSpecies) return null;
+
+  const currentAvgVal = Number(currentSpecies.currentAvg) || 0;
+  const currentDiffRate = Number(currentSpecies.prevDiffRate) || 0;
 
   const handleStartEditMarkets = () => {
     setDraftMarkets(
@@ -84,7 +87,7 @@ export default function AuctionSection({
       ...prev,
       {
         market: trimmed,
-        price: Number(currentSpecies.currentAvg) || 35000,
+        price: Number(currentSpecies.currentAvg) || 0,
         diff: 0,
         volume: '집계중',
         status: '보합',
@@ -174,7 +177,8 @@ export default function AuctionSection({
 
           <div className="flex flex-wrap items-center gap-1.5">
             {speciesKeys.map((sp) => {
-              const rate = safeSpeciesData[sp]?.prevDiffRate ?? 0;
+              const spPrice = Number(safeSpeciesData[sp]?.currentAvg) || 0;
+              const rate = Number(safeSpeciesData[sp]?.prevDiffRate) || 0;
               const isSelected = selectedSpecies === sp;
               return (
                 <button
@@ -194,12 +198,18 @@ export default function AuctionSection({
                     className={`text-[11px] ${
                       isSelected
                         ? 'text-sky-100'
+                        : spPrice <= 0
+                        ? 'text-slate-400'
                         : rate >= 0
                         ? 'text-rose-600'
                         : 'text-blue-600'
                     }`}
                   >
-                    {rate >= 0 ? `▲${rate}%` : `▼${Math.abs(rate)}%`}
+                    {spPrice <= 0
+                      ? '미수신'
+                      : rate >= 0
+                      ? `▲${rate}%`
+                      : `▼${Math.abs(rate)}%`}
                   </span>
                 </button>
               );
@@ -221,26 +231,36 @@ export default function AuctionSection({
                 </span>
               </div>
               <div className="flex items-baseline gap-2.5 mt-1">
-                <span className="text-2xl font-extrabold text-sky-700">
-                  {formatNumber(currentSpecies.currentAvg)}
+                <span
+                  className={`text-2xl font-extrabold ${
+                    currentAvgVal > 0 ? 'text-sky-700' : 'text-slate-400'
+                  }`}
+                >
+                  {formatNumber(currentAvgVal)}
                 </span>
                 <span className="text-xs font-medium text-slate-500">
                   {currentSpecies.unit}
                 </span>
-                <span
-                  className={`inline-flex items-center text-xs font-bold px-2 py-0.5 rounded-full ${
-                    currentSpecies.prevDiffRate >= 0
-                      ? 'bg-rose-50 text-rose-600'
-                      : 'bg-blue-50 text-blue-600'
-                  }`}
-                >
-                  {currentSpecies.prevDiffRate >= 0 ? (
-                    <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
-                  ) : (
-                    <ArrowDownRight className="w-3.5 h-3.5 mr-0.5" />
-                  )}
-                  {Math.abs(currentSpecies.prevDiffRate)}%
-                </span>
+                {currentAvgVal <= 0 ? (
+                  <span className="inline-flex items-center text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">
+                    수신 데이터 없음
+                  </span>
+                ) : (
+                  <span
+                    className={`inline-flex items-center text-xs font-bold px-2 py-0.5 rounded-full ${
+                      currentDiffRate >= 0
+                        ? 'bg-rose-50 text-rose-600'
+                        : 'bg-blue-50 text-blue-600'
+                    }`}
+                  >
+                    {currentDiffRate >= 0 ? (
+                      <ArrowUpRight className="w-3.5 h-3.5 mr-0.5" />
+                    ) : (
+                      <ArrowDownRight className="w-3.5 h-3.5 mr-0.5" />
+                    )}
+                    {Math.abs(currentDiffRate)}%
+                  </span>
+                )}
               </div>
             </div>
 
@@ -270,10 +290,11 @@ export default function AuctionSection({
 
           <div className="h-64 w-full bg-white rounded-xl border border-slate-100 p-3 flex flex-col justify-between">
             {(() => {
-              const pts = chartData || [];
-              const prices = pts.map((d) => Number(d.price) || 0);
+              const pts = Array.isArray(chartData) ? chartData : [];
+              const prices = pts.map((d) => Number(d?.price) || 0);
+              const hasAnyPositivePrice = prices.some((p) => p > 0);
               const minVal = prices.length ? Math.min(...prices) : 0;
-              const maxVal = prices.length ? Math.max(...prices) : 100;
+              const maxVal = hasAnyPositivePrice ? Math.max(...prices) : 1000;
               const pad = Math.max(Math.round((maxVal - minVal) * 0.2), 500);
               const yMin = Math.max(0, minVal - pad);
               const yMax = maxVal + pad;
@@ -292,8 +313,8 @@ export default function AuctionSection({
                   padL +
                   (pts.length <= 1 ? plotW / 2 : (idx / (pts.length - 1)) * plotW);
                 const y =
-                  padT + plotH - (((Number(d.price) || 0) - yMin) / range) * plotH;
-                return { x, y, date: d.date, price: Number(d.price) || 0 };
+                  padT + plotH - (((Number(d?.price) || 0) - yMin) / range) * plotH;
+                return { x, y, date: d?.date || '', price: Number(d?.price) || 0 };
               });
 
               const linePath = coords
@@ -450,39 +471,55 @@ export default function AuctionSection({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs">
-                    {(currentSpecies.markets || []).map((m, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-3.5">
-                          <div className="font-semibold text-slate-800">{m.market}</div>
-                          <div className="text-[11px] text-slate-400">물량 {m.volume}</div>
-                        </td>
-                        <td className="py-3 px-3 text-right font-bold text-slate-900">
-                          {formatNumber(m.price)}원
-                        </td>
-                        <td
-                          className={`py-3 px-3 text-right font-semibold ${
-                            m.diff >= 0 ? 'text-rose-600' : 'text-blue-600'
-                          }`}
-                        >
-                          {m.diff >= 0 ? `+${formatNumber(m.diff)}` : formatNumber(m.diff)}
-                        </td>
-                        <td className="py-3 px-3.5 text-center">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                              m.status === '급등' || m.status === '강세'
-                                ? 'bg-rose-50 text-rose-700'
-                                : m.status === '상승'
-                                ? 'bg-amber-50 text-amber-700'
-                                : m.status === '보합'
-                                ? 'bg-slate-100 text-slate-600'
-                                : 'bg-blue-50 text-blue-700'
+                    {(currentSpecies.markets || []).map((m, idx) => {
+                      const mPrice = Number(m?.price) || 0;
+                      const mDiff = Number(m?.diff) || 0;
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="py-3 px-3.5">
+                            <div className="font-semibold text-slate-800">{m.market}</div>
+                            <div className="text-[11px] text-slate-400">
+                              {mPrice > 0 ? `물량 ${m.volume}` : m.volume || '데이터 없음'}
+                            </div>
+                          </td>
+                          <td className="py-3 px-3 text-right font-bold text-slate-900">
+                            {mPrice > 0 ? `${formatNumber(mPrice)}원` : '0원'}
+                          </td>
+                          <td
+                            className={`py-3 px-3 text-right font-semibold ${
+                              mPrice <= 0
+                                ? 'text-slate-400'
+                                : mDiff >= 0
+                                ? 'text-rose-600'
+                                : 'text-blue-600'
                             }`}
                           >
-                            {m.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                            {mPrice <= 0
+                              ? '-'
+                              : mDiff >= 0
+                              ? `+${formatNumber(mDiff)}`
+                              : formatNumber(mDiff)}
+                          </td>
+                          <td className="py-3 px-3.5 text-center">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                                mPrice <= 0 || m.status === '미집계'
+                                  ? 'bg-slate-100 text-slate-400'
+                                  : m.status === '급등' || m.status === '강세'
+                                  ? 'bg-rose-50 text-rose-700'
+                                  : m.status === '상승'
+                                  ? 'bg-amber-50 text-amber-700'
+                                  : m.status === '보합'
+                                  ? 'bg-slate-100 text-slate-600'
+                                  : 'bg-blue-50 text-blue-700'
+                              }`}
+                            >
+                              {mPrice <= 0 ? '미집계' : m.status}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -571,7 +608,7 @@ export default function AuctionSection({
           <div className="mt-4 p-3.5 rounded-xl bg-amber-50/70 border border-amber-200/70 flex items-start gap-2.5">
             <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
             <p className="text-xs text-amber-900 leading-relaxed">
-              <strong>갱신 안내:</strong> 매일 <strong>낮 12:00(정오)</strong>에 부산·남해권 위판장 시세가 자동 갱신되며, <strong>[시세 실시간 갱신]</strong> 버튼으로 언제든 최신 시세를 불러올 수 있습니다.
+              <strong>갱신 안내:</strong> 매일 <strong>낮 12:00(정오)</strong>에 부산·남해권 위판장 시세가 자동 갱신되며, 수신된 공식 위판 데이터가 없는 어종·위판장은 실제 가격과 혼동되지 않도록 <strong>0원(미집계)</strong>으로 표시됩니다.
             </p>
           </div>
         </div>
