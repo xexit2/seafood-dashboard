@@ -41,8 +41,9 @@ export default function PurchaseInsightSection({
       .map((name) => {
         const sp = speciesData[name] || null;
         const demand = demandMap[name] || null;
-        const diffRate = sp ? Number(sp.prevDiffRate || 0) : null;
         const currentAvg = sp ? Number(sp.currentAvg || 0) : 0;
+        const hasValidPrice = Boolean(sp && currentAvg > 0);
+        const diffRate = hasValidPrice ? Number(sp.prevDiffRate || 0) : 0;
         const unit = sp?.unit || '원/kg';
 
         let signalType = 'neutral';
@@ -52,7 +53,7 @@ export default function PurchaseInsightSection({
           '산지 위판 시세가 보합권입니다. 거래처 발주량에 맞춰 당일 필요한 물량 위주로 매입하세요.';
         let score = 10;
 
-        if (sp && demand) {
+        if (hasValidPrice && demand) {
           if (diffRate <= -0.5) {
             signalType = 'buy_strong';
             badgeLabel = '적극 매입 추천 (마진 확대)';
@@ -72,7 +73,7 @@ export default function PurchaseInsightSection({
             strategyDesc = `시세 변동 폭이 크지 않고 거래처 소비가 꾸준한 핵심 어종입니다. 정기 출고 물량에 맞춰 안정적으로 매입하세요.`;
             score = 75 + demand.count * 3;
           }
-        } else if (demand && !sp) {
+        } else if (demand && !hasValidPrice) {
           signalType = 'demand_only';
           badgeLabel = `판매처 수요 TOP ${demand.rank}위`;
           strategyTitle = `등록 거래처 ${demand.count}개사(${demand.share}%) 주력 사용 원재료`;
@@ -125,33 +126,36 @@ export default function PurchaseInsightSection({
 
   return (
     <section className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="w-7 h-7 rounded-lg bg-gradient-to-br from-sky-600 to-indigo-700 text-white flex items-center justify-center shadow-2xs">
-              <TrendingUp className="w-4 h-4" />
-            </span>
-            <h2 className="text-lg font-bold text-slate-900">
-              매입 추천 · 트렌드 인사이트
-            </h2>
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-sky-50 text-sky-700 border border-sky-200">
-              산지 위판 시세 × 판매처 TOP 5 수요 교차 분석
-            </span>
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            공식 산지 위판장 시세 등락률과 등록 거래처의 주력 원재료 수요를 자동 비교해 오늘의 우선 매입 어종과 유통 전략을 제안합니다.
-          </p>
-        </div>
-
-        <div className="flex items-center gap-2 text-xs shrink-0">
-          <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-semibold border border-emerald-200">
-            시세 하락 어종 {priceDropCount}개
-          </span>
-          <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-800 font-semibold border border-amber-200">
-            수요 핵심 원재료 {highDemandCount}개
-          </span>
-        </div>
-      </div>
+      <div className="flex items-center justify-between text-xs bg-white px-3 py-2 rounded-lg border border-slate-100">
+                  <span className="text-slate-500">산지 위판 평균가</span>
+                  {item.sp && item.currentAvg > 0 ? (
+                    <div className="flex items-center gap-1.5 font-bold">
+                      <span className="text-slate-900">
+                        {formatNumber(item.currentAvg)} {item.unit}
+                      </span>
+                      <span
+                        className={`inline-flex items-center text-[11px] ${
+                          item.diffRate > 0
+                            ? 'text-rose-600'
+                            : item.diffRate < 0
+                            ? 'text-blue-600'
+                            : 'text-slate-500'
+                        }`}
+                      >
+                        {item.diffRate > 0 ? (
+                          <ArrowUpRight className="w-3 h-3" />
+                        ) : item.diffRate < 0 ? (
+                          <ArrowDownRight className="w-3 h-3" />
+                        ) : null}
+                        {item.diffRate > 0 ? `+${item.diffRate}%` : `${item.diffRate}%`}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] font-semibold text-slate-400">
+                      0원 (수신 데이터 없음)
+                    </span>
+                  )}
+                </div>
 
       {/* 상단 핵심 추천 배너 */}
       {topPick && (

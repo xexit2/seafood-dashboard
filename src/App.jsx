@@ -446,7 +446,11 @@ export default function App() {
       const schedule = getKstScheduleInfo();
       if (schedule.isAfterNoon && lastNoonSyncDate !== schedule.todayStr) {
         refreshAllSpeciesAuction(true);
-      }
+      } else {
+      showToast(
+        `조회된 공식 위판 데이터가 없어 시세가 0원으로 표시됩니다. (${error || '수신 데이터 없음'})`
+      );
+    }
     };
 
     checkAndRunNoonSync();

@@ -296,29 +296,51 @@ function buildRecentDateLabels() {
   return { labels7d, ymd7d, labels30d, todayLabel: labels7d[6] };
 }
 
-function normalizeHistoryDates(rawHistory, targetLabels, fallbackPrice) {
-  const basePrice = Number(fallbackPrice) || 35000;
+function normalizeHistoryDates(rawHistory, targetLabels, fallbackPrice = 0) {
+  const basePrice = Number(fallbackPrice) || 0;
   const list = Array.isArray(rawHistory) ? rawHistory : [];
   return targetLabels.map((label, idx) => {
-    const item = list[idx] || list[list.length - 1];
-    const price = Number(item?.price) || basePrice;
+    const item = list[idx];
+    const price = item && Number(item.price) > 0 ? Number(item.price) : basePrice;
     return { date: label, price };
   });
 }
 
-// 공공데이터포털 인증키 정규화 (Encoding 키 / Decoding 키 모두 안전 처리)
+// 데이터가 없는 어종용 빈(0) 구조 생성 헬퍼
+function buildEmptySpeciesRecord(existing, labels7d, labels30d, defaultMarkets) {
+  const marketList =
+    Array.isArray(existing?.markets) && existing.markets.length > 0
+      ? existing.markets.map((m) => m.market)
+      : defaultMarkets;
+
+  return {
+    ...existing,
+    currentAvg: 0,
+    prevDiffRate: 0,
+    hasLiveData: false,
+    history7d: labels7d.map((date) => ({ date, price: 0 })),
+    history30d: labels30d.map((date) => ({ date, price: 0 })),
+    markets: marketList.map((mName) => ({
+      market: mName,
+      price: 0,
+      diff: 0,
+      volume: '데이터 없음',
+      status: '미집계',
+    })),
+  };
+}
+
 function normalizeServiceKeyParam(rawKey) {
   const trimmed = String(rawKey || '').trim();
   if (!trimmed) return '';
   return trimmed.includes('%') ? trimmed : encodeURIComponent(trimmed);
 }
 
-// 공공데이터포털 JSON 또는 XML 응답에서 item 배열 추출
+// 공공데이터포털 JSON 또는 XML 응답에서 모든 형태의 레코드 배열 추출
 function extractDataGoItems(rawText) {
   const trimmed = String(rawText || '').trim();
   if (!trimmed) return { items: [], errorMsg: '빈 응답' };
 
-  // 1. JSON 응답 파싱
   if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
     try {
       const data = JSON.parse(trimmed);
@@ -329,19 +351,27 @@ function extractDataGoItems(rawText) {
       if (resultCode && resultCode !== '00' && resultCode !== 'NORMAL_CODE') {
         return { items: [], errorMsg: `${resultMsg || resultCode}` };
       }
-      const rawItems =
-        data?.response?.body?.items?.item ||
-        data?.body?.items?.item ||
-        data?.items ||
-        [];
-      const list = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
-      return { items: list, errorMsg: '' };
+
+      const bodyItems = data?.response?.body?.items || data?.body?.items || data?.items;
+      let rawItems = [];
+      if (Array.isArray(bodyItems)) {
+        rawItems = bodyItems;
+      } else if (bodyItems && typeof bodyItems === 'object') {
+        if (Array.isArray(bodyItems.item)) {
+          rawItems = bodyItems.item;
+        } else if (bodyItems.item && typeof bodyItems.item === 'object') {
+          rawItems = [bodyItems.item];
+        } else {
+          const firstArrayVal = Object.values(bodyItems).find((v) => Array.isArray(v));
+          if (firstArrayVal) rawItems = firstArrayVal;
+        }
+      }
+      return { items: rawItems, errorMsg: '' };
     } catch (_) {
-      // JSON 파싱 실패 시 XML 파싱으로 진행
+      // XML 파싱으로 진행
     }
   }
 
-  // 2. XML 응답 파싱
   try {
     const parser = new DOMParser();
     const xmlDoc = parser.parseFromString(trimmed, 'text/xml');
@@ -357,7 +387,7 @@ function extractDataGoItems(rawText) {
       };
     }
 
-    const itemNodes = Array.from(xmlDoc.querySelectorAll('item'));
+    const itemNodes = Array.from(xmlDoc.querySelectorAll('item, row, list'));
     const list = itemNodes.map((node) => {
       const obj = {};
       Array.from(node.children).forEach((child) => {
@@ -371,30 +401,43 @@ function extractDataGoItems(rawText) {
   }
 }
 
-// 공공데이터포털(해양수산부_위판장별 위탁판매 현황 /getselect0040List) 공식 Open API 조회
 // 공공데이터포털(해양수산부_위판장별 위탁 판매 현황 /getselect0040List) 공식 Open API 조회
+// 최근 3영업일 이내 데이터만 유효 인정하며, 미확인 시 디폴트 더미값 대신 0으로 반환
 export async function fetchPublicDataAuctionPrices(
   speciesMap,
   publicDataKey = '',
   defaultMarkets = DEFAULT_SOUTH_MARKETS
 ) {
-  const encodedKey = normalizeServiceKeyParam(publicDataKey);
-  if (!encodedKey) {
-    return { ok: false, updatedMap: null, matchedCount: 0, error: '공공데이터 인증키 미설정' };
-  }
-
   const keys = Object.keys(speciesMap || {});
   const { labels7d, labels30d, todayLabel } = buildRecentDateLabels();
 
-  // 최근 10일 날짜 목록 (YYYYMMDD) - baseDt는 필수 파라미터이므로 반드시 포함
-  const recent10Ymd = [];
+  const buildZeroMap = () => {
+    const map = {};
+    for (const k of keys) {
+      map[k] = buildEmptySpeciesRecord(speciesMap[k], labels7d, labels30d, defaultMarkets);
+    }
+    return map;
+  };
+
+  const encodedKey = normalizeServiceKeyParam(publicDataKey);
+  if (!encodedKey) {
+    return {
+      ok: false,
+      updatedMap: buildZeroMap(),
+      matchedCount: 0,
+      error: '공공데이터 인증키 미설정 (시세 0원 초기화)',
+    };
+  }
+
+  // 최근 3일 날짜 목록 (YYYYMMDD) - 오래된 과거 데이터 배제
+  const recent3Ymd = [];
   const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 3; i++) {
     const d = new Date(nowKst.getTime() - i * 24 * 60 * 60 * 1000);
     const yyyy = d.getUTCFullYear();
     const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
     const dd = String(d.getUTCDate()).padStart(2, '0');
-    recent10Ymd.push(`${yyyy}${mm}${dd}`);
+    recent3Ymd.push(`${yyyy}${mm}${dd}`);
   }
 
   const speciesAliases = {
@@ -407,19 +450,18 @@ export async function fetchPublicDataAuctionPrices(
   const baseUrl = 'https://apis.data.go.kr/1192000/select0040List/getselect0040List';
 
   try {
-    // 1단계: 필수 파라미터 baseDt로 최근 10일 중 데이터가 존재하는 가장 최신 위판일 탐색
     let validBaseDt = '';
     let lastApiError = '';
 
-    for (const ymd of recent10Ymd) {
+    for (const ymd of recent3Ymd) {
       const probeUrl = `${baseUrl}?serviceKey=${encodedKey}&numOfRows=10&pageNo=1&type=json&baseDt=${ymd}`;
       const res = await fetch(probeUrl);
       if (res.status === 401 || res.status === 403) {
         return {
           ok: false,
-          updatedMap: null,
+          updatedMap: buildZeroMap(),
           matchedCount: 0,
-          error: `접근 권한 오류 (HTTP ${res.status}) - 인증키를 확인해 주세요.`,
+          error: `정부 API 접근 권한 오류 (HTTP ${res.status})`,
         };
       }
       if (!res.ok) {
@@ -442,11 +484,11 @@ export async function fetchPublicDataAuctionPrices(
     if (!validBaseDt) {
       return {
         ok: false,
-        updatedMap: null,
+        updatedMap: buildZeroMap(),
         matchedCount: 0,
         error: lastApiError
-          ? `공공데이터 API 안내: ${lastApiError}`
-          : '최근 10일간 위판장 위탁판매 집계 데이터가 없습니다.',
+          ? `공공데이터 API 안내: ${lastApiError} (시세 0원 표시)`
+          : '최근 3일간 위판장 공식 집계 데이터가 없어 0원으로 표시됩니다.',
       };
     }
 
@@ -454,7 +496,6 @@ export async function fetchPublicDataAuctionPrices(
     const updatedMap = {};
     let matchedCount = 0;
 
-    // 2단계: 확인된 최신 위판일(validBaseDt) 기준으로 각 어종(mprcStdCodeNm)별 실제 단가·물량 조회
     for (const k of keys) {
       const existing = speciesMap[k];
       const aliases = speciesAliases[k] || [k];
@@ -482,7 +523,6 @@ export async function fetchPublicDataAuctionPrices(
       if (speciesRows.length > 0) {
         matchedCount += 1;
 
-        // 공식 응답 필드명 기준 단가 산출: csmtUntpc(위판단가) 우선, 없으면 csmtAmount ÷ (csmtQy 또는 csmtWt)
         const calcRowUnitPrice = (r) => {
           const untpc = Number(r.csmtUntpc || 0);
           if (untpc > 0) return untpc;
@@ -499,19 +539,20 @@ export async function fetchPublicDataAuctionPrices(
         const newAvg =
           prices.length > 0
             ? Math.round(prices.reduce((a, b) => a + b, 0) / prices.length)
-            : Number(existing?.currentAvg) || 35000;
+            : 0;
 
-        const prevAvg = Number(existing?.currentAvg) || newAvg;
+        const prevAvg = Number(existing?.currentAvg) || 0;
         const diffRate =
-          prevAvg > 0 ? Number((((newAvg - prevAvg) / prevAvg) * 100).toFixed(1)) : 0;
+          prevAvg > 0 && newAvg > 0
+            ? Number((((newAvg - prevAvg) / prevAvg) * 100).toFixed(1))
+            : 0;
 
-        // 상품단위명(goodsUnitNm)이 존재하면 단위 라벨 보완 (예: 상자(C/S), kg)
         const sampleUnitNm = String(
           speciesRows.find((r) => r.goodsUnitNm)?.goodsUnitNm || ''
         ).trim();
         const updatedUnitLabel = sampleUnitNm ? `원/${sampleUnitNm}` : existing?.unit || '원/kg';
 
-        // 위판장명(csmtmktNm) 및 산지조합명(mxtrNm) 기준으로 실제 낙찰가와 물량 매칭
+        // 해당 위판장에 실제 거래가 없으면 디폴트 가격 대신 0과 '거래 없음'으로 표시
         const normalizedMarkets = marketList.map((mName, idx) => {
           const shortMarket = mName
             .replace('위판장', '')
@@ -529,7 +570,7 @@ export async function fetchPublicDataAuctionPrices(
             const mAvgPrice =
               mPrices.length > 0
                 ? Math.round(mPrices.reduce((a, b) => a + b, 0) / mPrices.length)
-                : newAvg;
+                : 0;
 
             const totalQy = mRows.reduce((acc, r) => acc + Number(r.csmtQy || 0), 0);
             const totalWt = mRows.reduce((acc, r) => acc + Number(r.csmtWt || 0), 0);
@@ -544,8 +585,8 @@ export async function fetchPublicDataAuctionPrices(
               volumeLabel = `${new Intl.NumberFormat('ko-KR').format(Math.round(totalWt))} kg`;
             }
 
-            const prevMarketPrice = Number(existing?.markets?.[idx]?.price) || mAvgPrice;
-            const diff = mAvgPrice - prevMarketPrice;
+            const prevMarketPrice = Number(existing?.markets?.[idx]?.price) || 0;
+            const diff = prevMarketPrice > 0 && mAvgPrice > 0 ? mAvgPrice - prevMarketPrice : 0;
 
             return {
               market: mName,
@@ -558,16 +599,16 @@ export async function fetchPublicDataAuctionPrices(
 
           return {
             market: mName,
-            price: Number(existing?.markets?.[idx]?.price) || newAvg,
-            diff: Number(existing?.markets?.[idx]?.diff) || 0,
-            volume: existing?.markets?.[idx]?.volume || '당일 위판 없음',
-            status: existing?.markets?.[idx]?.status || '보합',
+            price: 0,
+            diff: 0,
+            volume: '당일 위판 없음',
+            status: '미집계',
           };
         });
 
-        const norm7d = normalizeHistoryDates(existing?.history7d, labels7d, newAvg);
+        const norm7d = labels7d.map((d) => ({ date: d, price: 0 }));
         norm7d[norm7d.length - 1] = { date: matchedDateLabel, price: newAvg };
-        const norm30d = normalizeHistoryDates(existing?.history30d, labels30d, newAvg);
+        const norm30d = labels30d.map((d) => ({ date: d, price: 0 }));
         norm30d[norm30d.length - 1] = { date: matchedDateLabel, price: newAvg };
 
         updatedMap[k] = {
@@ -575,17 +616,13 @@ export async function fetchPublicDataAuctionPrices(
           unit: updatedUnitLabel,
           currentAvg: newAvg,
           prevDiffRate: diffRate,
+          hasLiveData: newAvg > 0,
           history7d: norm7d,
           history30d: norm30d,
           markets: normalizedMarkets,
         };
       } else {
-        const fallbackAvg = Number(existing?.currentAvg) || 35000;
-        updatedMap[k] = {
-          ...existing,
-          history7d: normalizeHistoryDates(existing?.history7d, labels7d, fallbackAvg),
-          history30d: normalizeHistoryDates(existing?.history30d, labels30d, fallbackAvg),
-        };
+        updatedMap[k] = buildEmptySpeciesRecord(existing, labels7d, labels30d, defaultMarkets);
       }
     }
 
@@ -597,20 +634,19 @@ export async function fetchPublicDataAuctionPrices(
       error:
         matchedCount > 0
           ? ''
-          : `최신 위판일(${matchedDateLabel}) 데이터 내 일치하는 어종 거래가 없습니다.`,
+          : `위판일(${matchedDateLabel}) 데이터 내 일치하는 어종 거래가 없어 0원으로 표시됩니다.`,
     };
   } catch (err) {
     return {
       ok: false,
-      updatedMap: null,
+      updatedMap: buildZeroMap(),
       matchedCount: 0,
-      error: `공공데이터 API 연결 오류: ${err?.message || '네트워크/CORS 오류'}`,
+      error: `공공데이터 API 연결 오류 (시세 0원 표시): ${err?.message || '네트워크 오류'}`,
     };
   }
 }
 
-// 등록된 전체 어종 시세 일괄 갱신
-// 공공데이터 키가 설정된 경우: 공식 API만 단독 사용하고 제미나이 AI를 절대 호출하지 않음
+// 등록된 전체 어종 시세 일괄 갱신 (데이터 미수신 시 디폴트 대신 0원으로 반환)
 export async function fetchAllSpeciesAuctionBatch(
   speciesMap,
   geminiApiKey = '',
@@ -623,39 +659,16 @@ export async function fetchAllSpeciesAuctionBatch(
       publicDataKey,
       defaultMarkets
     );
-    if (pubRes.ok && pubRes.updatedMap) {
-      return {
-        updatedMap: pubRes.updatedMap,
-        liveUpdatedCount: pubRes.matchedCount,
-        source: 'public',
-        isRateLimit: false,
-        error: '',
-      };
-    }
-
-    // 공공데이터 키가 있으면 제미나이로 넘어가지 않고 날짜만 오늘로 갱신하며 정확한 안내 메시지 반환
-    const keys = Object.keys(speciesMap || {});
-    const { labels7d, labels30d } = buildRecentDateLabels();
-    const dateOnlyMap = {};
-    for (const k of keys) {
-      const existing = speciesMap[k];
-      const fallbackAvg = Number(existing?.currentAvg) || 35000;
-      dateOnlyMap[k] = {
-        ...existing,
-        history7d: normalizeHistoryDates(existing?.history7d, labels7d, fallbackAvg),
-        history30d: normalizeHistoryDates(existing?.history30d, labels30d, fallbackAvg),
-      };
-    }
     return {
-      updatedMap: dateOnlyMap,
-      liveUpdatedCount: 0,
+      updatedMap: pubRes.updatedMap,
+      liveUpdatedCount: pubRes.matchedCount,
       source: 'public',
       isRateLimit: false,
       error: pubRes.error,
     };
   }
 
-  // 공공데이터 키가 비어 있을 때만 Gemini AI 일괄 시세 조회 사용
+  // 공공데이터 키가 비어 있을 때만 Gemini AI 조회 사용 (실패 시 0원으로 반환)
   const keys = Object.keys(speciesMap || {});
   const { labels7d, labels30d, todayLabel } = buildRecentDateLabels();
 
@@ -676,24 +689,17 @@ export async function fetchAllSpeciesAuctionBatch(
 ${speciesSpecs}
 
 [필수 규칙]
-1. 반드시 모든 대상 어종(${keys.join(', ')})을 포함하고, 각 어종마다 지정된 위판장 목록의 당일 시세(price), 전일대비(diff), 물량(volume), 동향(status: 급등/강세/상승/보합/약세 중 택1)을 채워줘.
-2. history7d는 최근 7일(${labels7d.join(', ')}) 순서대로 7개, history30d는 최근 30일(${labels30d.join(', ')}) 순서대로 5개 가격을 넣어줘.
-3. 설명 없이 반드시 아래 순수 JSON 객체만 출력해줘:
+1. 반드시 모든 대상 어종(${keys.join(', ')})을 포함하고, 확인되지 않은 시세는 추측하지 말고 0으로 넣어줘.
+2. 설명 없이 반드시 아래 순수 JSON 객체만 출력해줘:
 {
   "species": {
     "${keys[0] || '삼치'}": {
-      "currentAvg": 64000,
-      "prevDiffRate": 2.5,
-      "history7d": [
-        { "date": "${labels7d[0]}", "price": 61000 },
-        { "date": "${labels7d[6]}", "price": 64000 }
-      ],
-      "history30d": [
-        { "date": "${labels30d[0]}", "price": 58000 },
-        { "date": "${labels30d[4]}", "price": 64000 }
-      ],
+      "currentAvg": 0,
+      "prevDiffRate": 0,
+      "history7d": [{ "date": "${labels7d[6]}", "price": 0 }],
+      "history30d": [{ "date": "${labels30d[4]}", "price": 0 }],
       "markets": [
-        { "market": "부산공동어시장", "price": 64500, "diff": 1500, "volume": "1,800 상자", "status": "상승" }
+        { "market": "부산공동어시장", "price": 0, "diff": 0, "volume": "데이터 없음", "status": "미집계" }
       ]
     }
   }
@@ -726,37 +732,32 @@ ${speciesSpecs}
               mName.includes(String(pm?.market || ''))
           ) || rawMarkets[idx];
 
+        const mPrice = Number(matchedM?.price) || 0;
         return {
           market: mName,
-          price: Number(matchedM?.price) || newAvg,
-          diff: Number(matchedM?.diff) || 0,
-          volume: String(matchedM?.volume || existing?.markets?.[idx]?.volume || '집계중'),
-          status: String(matchedM?.status || '보합'),
+          price: mPrice,
+          diff: mPrice > 0 ? Number(matchedM?.diff) || 0 : 0,
+          volume: mPrice > 0 ? String(matchedM?.volume || '집계중') : '데이터 없음',
+          status: mPrice > 0 ? String(matchedM?.status || '보합') : '미집계',
         };
       });
 
-      const norm7d = normalizeHistoryDates(found.history7d, labels7d, newAvg);
+      const norm7d = normalizeHistoryDates(found.history7d, labels7d, 0);
       norm7d[norm7d.length - 1] = { date: todayLabel, price: newAvg };
-      const norm30d = normalizeHistoryDates(found.history30d, labels30d, newAvg);
+      const norm30d = normalizeHistoryDates(found.history30d, labels30d, 0);
       norm30d[norm30d.length - 1] = { date: todayLabel, price: newAvg };
 
       updatedMap[k] = {
         ...existing,
         currentAvg: newAvg,
-        prevDiffRate: Number(found.prevDiffRate) ?? existing.prevDiffRate ?? 0,
+        prevDiffRate: Number(found.prevDiffRate) || 0,
+        hasLiveData: true,
         history7d: norm7d,
         history30d: norm30d,
         markets: normalizedMarkets,
       };
     } else {
-      const fallbackAvg = Number(existing?.currentAvg) || 35000;
-      const norm7d = normalizeHistoryDates(existing?.history7d, labels7d, fallbackAvg);
-      const norm30d = normalizeHistoryDates(existing?.history30d, labels30d, fallbackAvg);
-      updatedMap[k] = {
-        ...existing,
-        history7d: norm7d,
-        history30d: norm30d,
-      };
+      updatedMap[k] = buildEmptySpeciesRecord(existing, labels7d, labels30d, defaultMarkets);
     }
   }
 
@@ -769,7 +770,7 @@ ${speciesSpecs}
   };
 }
 
-// 단일 신규 어종 추가 조회용
+// 단일 신규 어종 추가 조회용 (실제 데이터 미확인 시 0원 반환)
 export async function fetchSpeciesAuctionTrend(
   speciesKeyword,
   geminiApiKey = '',
@@ -782,16 +783,17 @@ export async function fetchSpeciesAuctionTrend(
     name: cleanName,
     grade: '부산·남해권 위판 표준 규격',
     unit: '원/kg',
-    currentAvg: 35000,
+    currentAvg: 0,
     prevDiffRate: 0,
+    hasLiveData: false,
     history7d: [],
     history30d: [],
     markets: targetMarkets.map((m) => ({
       market: m,
-      price: 35000,
+      price: 0,
       diff: 0,
-      volume: '집계중',
-      status: '보합',
+      volume: '데이터 없음',
+      status: '미집계',
     })),
   };
 
