@@ -395,19 +395,18 @@ export default function App() {
     }
   };
 
-  // 전 어종 시세를 일괄 갱신 (1순위: 공공데이터 공식 API / 2순위: Gemini AI 보조 폴백)
+ // 전 어종 시세를 일괄 갱신 (1순위: 공공데이터 공식 API / 2순위: Gemini AI 보조 폴백)
   const refreshAllSpeciesAuction = async (isAutoNoon = false) => {
     if (isRefreshingAuction) return;
     setIsRefreshingAuction(true);
 
     const schedule = getKstScheduleInfo();
-    // 1. 반환값에서 error를 함께 구조 분해 할당으로 받습니다.
-    const { updatedMap, liveUpdatedCount, isRateLimit, error } =
+    const { updatedMap, liveUpdatedCount, source, isRateLimit, error } =
       await fetchAllSpeciesAuctionBatch(
-        speciesData,
-        geminiApiKey,
+        safeSpeciesData,
+        supabaseConfig.geminiKey,
         DEFAULT_SOUTH_MARKETS,
-        publicDataKey
+        supabaseConfig.publicDataKey
       );
 
     const updatedLabel = `${schedule.formattedNow}${isAutoNoon ? ' (12:00 자동)' : ' (수동)'}`;
@@ -431,11 +430,12 @@ export default function App() {
     } else if (isAutoNoon) {
       showToast('낮 12:00 정기 스케줄에 따라 부산·남해 위판장 시세가 자동 갱신되었습니다.');
     } else if (liveUpdatedCount > 0) {
-      const sourceLabel = source === 'public' ? '해양수산부·수협 공식 위판장 전산' : 'AI 웹 검색';
+      const sourceLabel =
+        source === 'public' ? '해양수산부·수협 공식 위판장 전산' : 'AI 웹 검색';
       showToast(`${sourceLabel} 기준 ${liveUpdatedCount}개 어종 실제 시세·물량이 최신화되었습니다!`);
     } else {
       showToast(
-        `기준 날짜가 오늘(${schedule.todayStr})로 갱신되었습니다. (${error || 'API 키 확인 필요'})`
+        `조회된 공식 위판 데이터가 없어 시세가 0원으로 표시됩니다. (${error || '수신 데이터 없음'})`
       );
     }
   };
@@ -447,11 +447,7 @@ export default function App() {
       const schedule = getKstScheduleInfo();
       if (schedule.isAfterNoon && lastNoonSyncDate !== schedule.todayStr) {
         refreshAllSpeciesAuction(true);
-     } else {
-      showToast(
-        `조회된 공식 위판 데이터가 없어 시세가 0원으로 표시됩니다. (${error || '수신 데이터 없음'})`
-      );
-    }
+      }
     };
 
     checkAndRunNoonSync();
