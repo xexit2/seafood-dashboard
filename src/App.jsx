@@ -401,12 +401,13 @@ export default function App() {
     setIsRefreshingAuction(true);
 
     const schedule = getKstScheduleInfo();
-    const { updatedMap, liveUpdatedCount, source, isRateLimit, error } =
+    // 1. 반환값에서 error를 함께 구조 분해 할당으로 받습니다.
+    const { updatedMap, liveUpdatedCount, isRateLimit, error } =
       await fetchAllSpeciesAuctionBatch(
-        safeSpeciesData,
-        supabaseConfig.geminiKey,
+        speciesData,
+        geminiApiKey,
         DEFAULT_SOUTH_MARKETS,
-        supabaseConfig.publicDataKey
+        publicDataKey
       );
 
     const updatedLabel = `${schedule.formattedNow}${isAutoNoon ? ' (12:00 자동)' : ' (수동)'}`;
@@ -446,7 +447,7 @@ export default function App() {
       const schedule = getKstScheduleInfo();
       if (schedule.isAfterNoon && lastNoonSyncDate !== schedule.todayStr) {
         refreshAllSpeciesAuction(true);
-      } else {
+     } else {
       showToast(
         `조회된 공식 위판 데이터가 없어 시세가 0원으로 표시됩니다. (${error || '수신 데이터 없음'})`
       );
