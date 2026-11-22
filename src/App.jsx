@@ -832,8 +832,8 @@ export default function App() {
     abortSearchRef.current = false;
     setIsSearchingTopIngredients(true);
 
-    // 웹 검색 정확도 향상을 위해 10개사씩 묶고, 1회 클릭당 최대 6배치(60개사)까지 안전 실행
-    const batchSize = 10;
+    // 정밀 매칭을 위해 5개사씩 묶고, 1회 클릭당 최대 6배치(30개사)까지 안전 실행
+    const batchSize = 5;
     const MAX_BATCHES_PER_RUN = 6;
     const cappedTargets = targetsToSearch.slice(0, batchSize * MAX_BATCHES_PER_RUN);
     const total = cappedTargets.length;
@@ -875,7 +875,7 @@ export default function App() {
       setSearchProgress({ done: doneCount, total });
 
       if (i + batchSize < total && !abortSearchRef.current) {
-        await new Promise((r) => setTimeout(r, 4000));
+        await new Promise((r) => setTimeout(r, 3500));
       }
     }
 
@@ -886,7 +886,7 @@ export default function App() {
       if (Object.prototype.hasOwnProperty.call(newlyFoundMap, p.id)) {
         const found = newlyFoundMap[p.id];
 
-        // 전체 재서칭(isFullRescan)일 때는 빈 결과 보호를 제외하고 최신 6개월 검색 결과로 그대로 갱신
+        // 전체 재서칭(isFullRescan)일 때는 최신 검색 결과로 그대로 갱신
         if (isFullRescan) {
           return {
             ...p,
