@@ -66,7 +66,7 @@ function parseFlexibleJson(rawText) {
   }
 }
 
-// 일일 호출 상한(Safety Cap) 및 단일 모델(gemini-2.5-flash) 고정 호출 함수
+// 일일 호출 상한(Safety Cap) 및 Gemini 3.8 Flash 우선 호출 함수
 async function callGeminiWithFallback(promptText, apiKey, useSearch = false) {
   const cleanKey = (apiKey || '').trim();
   if (!cleanKey) {
@@ -84,55 +84,73 @@ async function callGeminiWithFallback(promptText, apiKey, useSearch = false) {
     };
   }
 
-  // 안전장치 2: 다중 폴백 중복 과금 방지를 위해 안정화 단일 모델만 사용
-  const model = 'gemini-2.5-flash';
-  incrementDailyAiUsage();
+  // Google AI Studio 활성 모델(Gemini 3.8 Flash) 최우선 호출
+  const candidateModels = [
+    'gemini-3.8-flash',
+    'gemini-3.8-flash-preview',
+    'gemini-3-flash-preview',
+  ];
 
-  try {
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-    const body = {
-      contents: [{ role: 'user', parts: [{ text: promptText }] }],
-      generationConfig: { temperature: 0.1 },
-    };
+  let lastError = '사용 가능한 Gemini 모델을 찾지 못했습니다.';
 
-    if (useSearch) {
-      body.tools = [{ google_search: {} }];
-    }
-
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-goog-api-key': cleanKey,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (res.status === 429) {
-      return {
-        ok: false,
-        text: '',
-        error: 'API 사용 한도 초과 (429)',
-        isRateLimit: true,
+  for (const model of candidateModels) {
+    try {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      const body = {
+        contents: [{ role: 'user', parts: [{ text: promptText }] }],
+        generationConfig: { temperature: 0.1 },
       };
-    }
 
-    if (!res.ok) {
-      const errData = await res.json().catch(() => ({}));
-      const msg = errData?.error?.message || `HTTP ${res.status}`;
-      return { ok: false, text: '', error: msg };
-    }
+      if (useSearch) {
+        body.tools = [{ google_search: {} }];
+      }
 
-    const data = await res.json();
-    const parts = data?.candidates?.[0]?.content?.parts || [];
-    const text = parts.map((p) => p.text || '').join('\n').trim();
-    if (text) {
-      return { ok: true, text, error: '' };
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': cleanKey,
+        },
+        body: JSON.stringify(body),
+      });
+
+      // 404(모델명 불일치)인 경우 일일 카운트를 차감하지 않고 다음 모델명으로 즉시 전환
+      if (res.status === 404) {
+        lastError = `모델 미지원(404): ${model}`;
+        continue;
+      }
+
+      // 실제 모델 호출이 성사된 경우에만 일일 사용량 1회 차감
+      incrementDailyAiUsage();
+
+      if (res.status === 429) {
+        return {
+          ok: false,
+          text: '',
+          error: 'API 사용 한도 초과 (429)',
+          isRateLimit: true,
+        };
+      }
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const msg = errData?.error?.message || `HTTP ${res.status}`;
+        return { ok: false, text: '', error: msg };
+      }
+
+      const data = await res.json();
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      const text = parts.map((p) => p.text || '').join('\n').trim();
+      if (text) {
+        return { ok: true, text, error: '' };
+      }
+      return { ok: false, text: '', error: 'AI 응답이 비어 있습니다.' };
+    } catch (e) {
+      lastError = e.message || '네트워크 오류';
     }
-    return { ok: false, text: '', error: 'AI 응답이 비어 있습니다.' };
-  } catch (e) {
-    return { ok: false, text: '', error: e.message || '네트워크 오류' };
   }
+
+  return { ok: false, text: '', error: lastError };
 }
 
 export async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
