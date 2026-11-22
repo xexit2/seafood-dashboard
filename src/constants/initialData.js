@@ -7,7 +7,8 @@ export const DEFAULT_MASTER_PIN = '1234';
 export const DEFAULT_SUPABASE_URL = 'https://xoprcktqaekcmkuhdehg.supabase.co';
 export const DEFAULT_SUPABASE_ANON_KEY =
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhvcHJja3RxYWVrY21rdWhkZWhnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUwMDc3NDUsImV4cCI6MjExMDU4Mzc0NX0.9Jw9TCCYNWYkx2ZtK-A45s2OVHOHEDDASqVV0zIzeM0';
-
+export const DEFAULT_DRIVE_WEBHOOK_URL =
+  'https://script.google.com/macros/s/AKfycbygBjj6boUxTHm3Wi7cgZRt-JZZ1XGISAs5D09efS6fo0kvhueazjF3a9tAhepqvwVIaA/exec';
 // 부산 인근 · 남해 주요 위판장 기본 목록
 export const DEFAULT_SOUTH_MARKETS = [
   '부산공동어시장',

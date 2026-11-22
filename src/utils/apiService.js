@@ -688,8 +688,11 @@ export async function fetchSpeciesAuctionTrend(
       diff: 0,
       volume: '데이터 없음',
       status: '미집계',
-    })),
+    })
+  ),
   };
+
+  
 
   const batchRes = await fetchAllSpeciesAuctionBatch(
     { [cleanName]: baseObj },
@@ -705,4 +708,87 @@ export async function fetchSpeciesAuctionTrend(
     error: batchRes.error,
     data: batchRes.updatedMap[cleanName],
   };
+
+  
+}
+// 모든 업체의 1번(주력 원재료), 2번(대표·5점 리뷰 메뉴) 누적 현황을 저장 시간과 함께 텍스트로 포맷
+export function buildPartnersAnalysisSnapshotText(partners, meta = {}) {
+  const savedAt = meta.savedAt || new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const modeLabel = meta.modeLabel || '누적 스냅샷';
+  const newlyUpdatedCount = Number(meta.newlyUpdatedCount) || 0;
+
+  const analyzedPartners = (Array.isArray(partners) ? partners : []).filter(
+    (p) =>
+      p &&
+      (p.topIngredientSearched ||
+        p.isSearched ||
+        (Array.isArray(p.extractedIngredients) && p.extractedIngredients.length > 0) ||
+        (Array.isArray(p.searchedMenus) && p.searchedMenus.length > 0) ||
+        Boolean(p.topReviewMenu))
+  );
+
+  const lines = [
+    '====================================================================',
+    `[수산물 종합 유통·시세 대시보드 - 거래업체 분석 누적 기록]`,
+    `- 저장 일시: ${savedAt}`,
+    `- 갱신 구분: ${modeLabel} (이번 신규 갱신: ${newlyUpdatedCount}개사 / 전체 누적: ${analyzedPartners.length}개사)`,
+    '====================================================================',
+    '',
+  ];
+
+  if (analyzedPartners.length === 0) {
+    lines.push('저장된 업체 분석 데이터가 없습니다.');
+    return lines.join('\n');
+  }
+
+  analyzedPartners.forEach((p, idx) => {
+    const ingList =
+      Array.isArray(p.extractedIngredients) && p.extractedIngredients.length > 0
+        ? p.extractedIngredients.join(', ')
+        : '미확인';
+
+    const menuCandidates = [];
+    if (p.topReviewMenu) menuCandidates.push(`5점리뷰1위: ${p.topReviewMenu}`);
+    if (Array.isArray(p.searchedMenus) && p.searchedMenus.length > 0) {
+      menuCandidates.push(p.searchedMenus.join(', '));
+    } else if (p.mainProduct) {
+      menuCandidates.push(p.mainProduct);
+    }
+    const menuText = menuCandidates.length > 0 ? menuCandidates.join(' / ') : '미확인';
+    const updatedStamp = p.lastAnalyzedAt ? ` (갱신시각: ${p.lastAnalyzedAt})` : '';
+
+    lines.push(`${idx + 1}. ${p.companyName} | ${p.address || '주소 미기재'}${updatedStamp}`);
+    lines.push(`   - [1번 정보] 주력 원재료: ${ingList}`);
+    lines.push(`   - [2번 정보] 대표·리뷰 메뉴: ${menuText}`);
+    lines.push('');
+  });
+
+  return lines.join('\n');
+}
+
+// Google Apps Script 웹 앱 URL을 통해 내 구글 드라이브로 텍스트 파일 자동 업로드
+export async function uploadSnapshotToGoogleDrive(webhookUrl, fileName, content) {
+  const cleanUrl = String(webhookUrl || '').trim();
+  if (!cleanUrl) {
+    return { ok: false, skipped: true, error: '구글 드라이브 웹 앱 URL 미설정' };
+  }
+
+  try {
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ fileName, content }),
+    });
+    if (!res.ok) {
+      return { ok: false, error: `HTTP ${res.status}` };
+    }
+    const data = await res.json().catch(() => ({ ok: true }));
+    return {
+      ok: Boolean(data?.ok !== false),
+      fileUrl: data?.fileUrl || '',
+      error: data?.error || '',
+    };
+  } catch (err) {
+    return { ok: false, error: err?.message || '구글 드라이브 전송 오류' };
+  }
 }

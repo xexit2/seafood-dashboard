@@ -4,6 +4,7 @@ import {
   Cloud,
   Database,
   FileSpreadsheet,
+  Download,
   Plus,
   KeyRound,
   Lock,
@@ -26,6 +27,7 @@ import {
   DEFAULT_MASTER_PIN,
   DEFAULT_SUPABASE_URL,
   DEFAULT_SUPABASE_ANON_KEY,
+  DEFAULT_DRIVE_WEBHOOK_URL,
   DEFAULT_SOUTH_MARKETS,
   INITIAL_WEATHER_DATA,
   INITIAL_SPECIES_DATA,
@@ -42,6 +44,10 @@ import {
   searchTopIngredientsBatch,
   fetchSpeciesAuctionTrend,
   fetchAllSpeciesAuctionBatch,
+  getDailyAiUsageStats,
+  DAILY_AI_CALL_LIMIT,
+  buildPartnersAnalysisSnapshotText,
+  uploadSnapshotToGoogleDrive,
 } from './utils/apiService';
 
 const formatNumber = (num) => new Intl.NumberFormat('ko-KR').format(num);
@@ -71,12 +77,14 @@ export default function App() {
     anonKey: DEFAULT_SUPABASE_ANON_KEY,
     geminiKey: '',
     publicDataKey: '',
+    driveWebhookUrl: DEFAULT_DRIVE_WEBHOOK_URL,
   });
   const [supabaseForm, setSupabaseForm] = useState({
     url: DEFAULT_SUPABASE_URL,
     anonKey: DEFAULT_SUPABASE_ANON_KEY,
     geminiKey: '',
     publicDataKey: '',
+    driveWebhookUrl: DEFAULT_DRIVE_WEBHOOK_URL,
   });
   const [diagResults, setDiagResults] = useState(null);
   const [isRunningDiag, setIsRunningDiag] = useState(false);
@@ -170,6 +178,71 @@ export default function App() {
     setTimeout(() => setToastMessage(''), 4000);
   };
 
+  const saveAndSyncAnalysisSnapshot = async (
+    updatedPartnersList,
+    modeLabel,
+    newlyUpdatedCount,
+    autoUploadDrive = true
+  ) => {
+    const schedule = getKstScheduleInfo();
+    const textContent = buildPartnersAnalysisSnapshotText(updatedPartnersList, {
+      savedAt: schedule.formattedNow,
+      modeLabel,
+      newlyUpdatedCount,
+    });
+    const safeStamp = schedule.formattedNow.replace(/[:\s]/g, '_').replace(/-/g, '');
+    const fileName = `수산물_업체분석_누적_${safeStamp}.txt`;
+
+    try {
+      localStorage.setItem(`${APP_ID}_last_snapshot_txt`, textContent);
+    } catch {
+      // 저장소 용량 제한 무시
+    }
+
+    const targetWebhook = (
+      supabaseConfig.driveWebhookUrl || DEFAULT_DRIVE_WEBHOOK_URL
+    ).trim();
+
+    if (autoUploadDrive && targetWebhook) {
+      const driveRes = await uploadSnapshotToGoogleDrive(
+        targetWebhook,
+        fileName,
+        textContent
+      );
+      if (driveRes.ok) {
+        showToast(`구글 드라이브 자동 저장 완료! (${fileName})`);
+      } else {
+        showToast(`대시보드 저장 완료 (드라이브 전송 오류: ${driveRes.error})`);
+      }
+    }
+    return { fileName, textContent };
+  };
+
+  // 사용자가 직접 눌러서 내 컴퓨터에 텍스트(.txt) 파일로 저장하는 함수
+  const handleManualDownloadSnapshot = () => {
+    const schedule = getKstScheduleInfo();
+    const textContent = buildPartnersAnalysisSnapshotText(partners, {
+      savedAt: schedule.formattedNow,
+      modeLabel: '수동 다운로드 (전체 누적)',
+      newlyUpdatedCount: 0,
+    });
+    const safeStamp = schedule.formattedNow.replace(/[:\s]/g, '_').replace(/-/g, '');
+    const fileName = `수산물_업체분석_누적_${safeStamp}.txt`;
+
+    const blob = new Blob(['\uFEFF' + textContent], {
+      type: 'text/plain;charset=utf-8',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`내 컴퓨터에 텍스트 파일로 저장되었습니다: ${fileName}`);
+  };
+
   useEffect(() => {
     let loadedSbUrl = DEFAULT_SUPABASE_URL;
     let loadedSbKey = DEFAULT_SUPABASE_ANON_KEY;
@@ -191,6 +264,7 @@ export default function App() {
           anonKey: (parsedSb.anonKey || DEFAULT_SUPABASE_ANON_KEY).trim(),
           geminiKey: (parsedSb.geminiKey || '').trim(),
           publicDataKey: (parsedSb.publicDataKey || '').trim(),
+          driveWebhookUrl: (parsedSb.driveWebhookUrl || DEFAULT_DRIVE_WEBHOOK_URL).trim(),
         };
         loadedSbUrl = normalizedSb.url;
         loadedSbKey = normalizedSb.anonKey;
@@ -300,12 +374,14 @@ export default function App() {
             JSON.stringify(remote.topIngredients)
           );
         }
-        if (remote.geminiKey || remote.publicDataKey) {
+        if (remote.geminiKey || remote.publicDataKey || remote.driveWebhookUrl) {
           setSupabaseConfig((prev) => {
             const next = {
               ...prev,
               geminiKey: remote.geminiKey || prev.geminiKey,
               publicDataKey: remote.publicDataKey || prev.publicDataKey,
+              driveWebhookUrl:
+                remote.driveWebhookUrl || prev.driveWebhookUrl || DEFAULT_DRIVE_WEBHOOK_URL,
             };
             localStorage.setItem(`${APP_ID}_supabase`, JSON.stringify(next));
             return next;
@@ -314,6 +390,8 @@ export default function App() {
             ...prev,
             geminiKey: remote.geminiKey || prev.geminiKey,
             publicDataKey: remote.publicDataKey || prev.publicDataKey,
+            driveWebhookUrl:
+              remote.driveWebhookUrl || prev.driveWebhookUrl || DEFAULT_DRIVE_WEBHOOK_URL,
           }));
         }
       }
@@ -383,6 +461,7 @@ export default function App() {
               lastNoonSyncDate: nextLastNoonSyncDate,
               publicDataKey: activeSb.publicDataKey || '',
               geminiKey: activeSb.geminiKey || '',
+              driveWebhookUrl: activeSb.driveWebhookUrl || DEFAULT_DRIVE_WEBHOOK_URL,
             },
             updated_at: new Date().toISOString(),
           }),
@@ -395,7 +474,7 @@ export default function App() {
     }
   };
 
- // 전 어종 시세를 일괄 갱신 (1순위: 공공데이터 공식 API / 2순위: Gemini AI 보조 폴백)
+  // 전 어종 시세를 일괄 갱신 (공공데이터 공식 API 기준 · 미설정 시 AI 할당량 보호)
   const refreshAllSpeciesAuction = async (isAutoNoon = false) => {
     if (isRefreshingAuction) return;
     setIsRefreshingAuction(true);
@@ -425,7 +504,7 @@ export default function App() {
 
     if (isRateLimit) {
       showToast(
-        '⚠️ AI 무료 사용 한도를 소진하여 즉시 중지했습니다. [동기화 설정]에 무료 공공데이터 인증키를 입력하시면 한도 제한 없이 공식 위판 시세가 갱신됩니다.'
+        '⚠️ AI 사용 한도에 도달하여 즉시 중지했습니다. [동기화 · API키 설정]을 확인해 주세요.'
       );
     } else if (isAutoNoon) {
       showToast('낮 12:00 정기 스케줄에 따라 부산·남해 위판장 시세가 자동 갱신되었습니다.');
@@ -504,6 +583,9 @@ export default function App() {
     const cleanSbKey = (supabaseForm.anonKey || '').trim();
     const cleanGeminiKey = (supabaseForm.geminiKey || '').trim();
     const cleanPublicKey = (supabaseForm.publicDataKey || '').trim();
+    const cleanDriveUrl = (
+      supabaseForm.driveWebhookUrl || DEFAULT_DRIVE_WEBHOOK_URL
+    ).trim();
 
     const results = {
       sbRead: { ok: false, detail: '미실행' },
@@ -554,6 +636,7 @@ export default function App() {
             lastNoonSyncDate,
             geminiKey: cleanGeminiKey,
             publicDataKey: cleanPublicKey,
+            driveWebhookUrl: cleanDriveUrl,
           },
           updated_at: new Date().toISOString(),
         }),
@@ -616,12 +699,15 @@ export default function App() {
       anonKey: supabaseForm.anonKey.trim(),
       geminiKey: (supabaseForm.geminiKey || '').trim(),
       publicDataKey: (supabaseForm.publicDataKey || '').trim(),
+      driveWebhookUrl: (
+        supabaseForm.driveWebhookUrl || DEFAULT_DRIVE_WEBHOOK_URL
+      ).trim(),
     };
     setSupabaseConfig(trimmed);
     localStorage.setItem(`${APP_ID}_supabase`, JSON.stringify(trimmed));
     setActiveModal(null);
     await persistDashboardState({ supabaseConfig: trimmed });
-    showToast('클라우드 DB 및 API 설정이 저장되었습니다!');
+    showToast('클라우드 DB, API 및 구글 드라이브 연동 설정이 저장되었습니다!');
   };
 
   const handleResetSpeciesToDefault = async () => {
@@ -714,7 +800,7 @@ export default function App() {
       persistDashboardState({ speciesData: nextSpeciesData });
       if (res.isRateLimit) {
         showToast(
-          `⚠️ AI 무료 사용 한도를 소진하여 '${res.data.name}' 탭만 기본 시세로 추가되었습니다.`
+          `⚠️ AI 사용 한도에 도달하여 '${res.data.name}' 탭만 기본 시세로 추가되었습니다.`
         );
       } else {
         showToast(
@@ -747,7 +833,9 @@ export default function App() {
     setIsSearchingTopIngredients(true);
 
     const batchSize = 15;
-    const total = targetsToSearch.length;
+    const MAX_BATCHES_PER_RUN = 5; // 1회 실행당 최대 5배치(75개사) 과금 보호 제한
+    const cappedTargets = targetsToSearch.slice(0, batchSize * MAX_BATCHES_PER_RUN);
+    const total = cappedTargets.length;
     setSearchProgress({ done: 0, total });
 
     const newlyFoundMap = {};
@@ -757,7 +845,7 @@ export default function App() {
     for (let i = 0; i < total; i += batchSize) {
       if (abortSearchRef.current) break;
 
-      const batch = targetsToSearch.slice(i, i + batchSize);
+      const batch = cappedTargets.slice(i, i + batchSize);
       const batchRes = await searchTopIngredientsBatch(batch, supabaseConfig.geminiKey);
       if (batchRes.error && !lastError) {
         lastError = batchRes.error;
@@ -786,16 +874,18 @@ export default function App() {
       }
     }
 
+    const schedule = getKstScheduleInfo();
+    const newlyCount = Object.keys(newlyFoundMap).length;
+
     const nextPartners = partners.map((p) => {
+      // 이번에 새로 서치된 업체만 업데이트 (기존 저장된 업체는 재갱신하지 않고 보존)
       if (Object.prototype.hasOwnProperty.call(newlyFoundMap, p.id)) {
         return {
           ...p,
           topIngredientSearched: true,
           extractedIngredients: newlyFoundMap[p.id],
+          lastAnalyzedAt: schedule.formattedNow,
         };
-      }
-      if (isFullRescan && !hitRateLimit && !abortSearchRef.current) {
-        return { ...p, topIngredientSearched: false, extractedIngredients: [] };
       }
       return p;
     });
@@ -838,7 +928,6 @@ export default function App() {
       partners: pList,
     }));
 
-    const schedule = getKstScheduleInfo();
     const nextTopState = {
       items: top5Items,
       updatedAt: schedule.formattedNow,
@@ -855,9 +944,22 @@ export default function App() {
       topIngredients: nextTopState,
     });
 
+    const usageAfter = getDailyAiUsageStats();
+    const hasMoreUnsearched = targetsToSearch.length > cappedTargets.length;
+
+    if (newlyCount > 0) {
+      await saveAndSyncAnalysisSnapshot(
+        nextPartners,
+        isFullRescan ? '전체 재서칭' : '신규 업체 추가 갱신 (기존 보존)',
+        newlyCount,
+        true
+      );
+    }
+
     if (hitRateLimit) {
       showToast(
-        '⚠️ AI 무료 사용 한도를 모두 소진하여 즉시 중지했습니다. (직전까지 확인된 업체 결과는 저장됨)'
+        lastError ||
+          `⚠️ 일일 AI 호출 상한(${DAILY_AI_CALL_LIMIT}회) 또는 한도에 도달하여 즉시 중지했습니다.`
       );
     } else if (abortSearchRef.current) {
       showToast(`서치가 중지되었습니다. (누적 확인 ${analyzedCount}개사 결과 반영)`);
@@ -871,7 +973,9 @@ export default function App() {
       );
     } else {
       showToast(
-        `${isFullRescan ? '전체 재서칭' : `신규 ${total}개사 서치`} 완료! (누적 확인 ${analyzedCount}개사 · 생략 ${omittedCount}개사)`
+        `${total}개사 분석 완료! (오늘 AI 호출 ${usageAfter.count}/${DAILY_AI_CALL_LIMIT}회${
+          hasMoreUnsearched ? ' · 남은 업체는 [신규 업체만 서치]로 이어서 실행 가능' : ''
+        })`
       );
     }
   };
@@ -944,13 +1048,14 @@ export default function App() {
     };
   }, [topIngredientsState, safeSpeciesData, partners]);
 
-  const handleSearchSinglePartnerMenu = async (partner) => {
+  const handleSearchSinglePartnerMenu = async (partner, skipAutoDrive = false) => {
     if (searchingPartnerIds[partner.id]) return;
     setSearchingPartnerIds((prev) => ({ ...prev, [partner.id]: true }));
 
     const result = await searchPartnerWebAndMenus(partner, supabaseConfig.geminiKey);
     const hasFoundMenus = result.menus && result.menus.length > 0;
     const top5StarMenu = result.topReviewMenu || (hasFoundMenus ? result.menus[0] : '');
+    const schedule = getKstScheduleInfo();
 
     const nextPartners = partners.map((item) =>
       item.id === partner.id
@@ -965,11 +1070,21 @@ export default function App() {
             blogUrl: result.blogUrl,
             aiSummary: result.summary,
             isSearched: true,
+            lastAnalyzedAt: schedule.formattedNow,
           }
         : item
     );
     setPartners(nextPartners);
-    persistDashboardState({ partners: nextPartners });
+    await persistDashboardState({ partners: nextPartners });
+
+    if (!skipAutoDrive) {
+      await saveAndSyncAnalysisSnapshot(
+        nextPartners,
+        `개별 업체 메뉴 갱신 (${partner.companyName})`,
+        1,
+        true
+      );
+    }
 
     setSearchingPartnerIds((prev) => ({ ...prev, [partner.id]: false }));
     setSelectedPartnerDetail({
@@ -980,6 +1095,7 @@ export default function App() {
       instagramUrl: result.instagramUrl,
       blogUrl: result.blogUrl,
       aiSummary: result.summary,
+      lastAnalyzedAt: schedule.formattedNow,
     });
     showToast(
       top5StarMenu
@@ -996,9 +1112,15 @@ export default function App() {
     }
     setIsBatchSearching(true);
     for (const target of targets) {
-      await handleSearchSinglePartnerMenu(target);
+      await handleSearchSinglePartnerMenu(target, true);
     }
     setIsBatchSearching(false);
+    await saveAndSyncAnalysisSnapshot(
+      partners,
+      `일괄 업체 메뉴 갱신 (${targets.length}개사)`,
+      targets.length,
+      true
+    );
     showToast(`${targets.length}개 거래처의 판매 메뉴 및 SNS 주소 일괄 서칭이 완료되었습니다.`);
   };
 
@@ -1408,6 +1530,14 @@ export default function App() {
 
           <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
             <button
+              onClick={handleManualDownloadSnapshot}
+              title="누적된 거래업체 1번(주력 원재료)·2번(메뉴) 분석 결과를 내 컴퓨터 TXT 파일로 즉시 저장합니다."
+              className="inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold rounded-lg border text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100 cursor-pointer"
+            >
+              <Download className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden md:inline">분석 TXT 저장</span>
+            </button>
+            <button
               onClick={() => setActiveModal('cloud')}
               className="inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold rounded-lg border text-sky-700 bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer"
             >
@@ -1589,6 +1719,7 @@ export default function App() {
             searchProgress={searchProgress}
             onRequestNewSearchConfirm={() => setActiveModal('confirmTopSearchNew')}
             onRequestFullRescanConfirm={() => setActiveModal('confirmTopSearchAll')}
+            onDownloadSnapshotTxt={handleManualDownloadSnapshot}
             onAbortSearch={() => {
               abortSearchRef.current = true;
             }}
