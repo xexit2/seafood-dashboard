@@ -74,82 +74,63 @@ async function resolveWorkingGeminiModel(apiKey) {
 }
 
 // 429(사용 한도 초과) 발생 시 연쇄 호출이나 재시도 없이 즉시 중단하는 단일 호출 함수
-async function callGeminiWithFallback(userQuery, geminiApiKey = '', useSearch = true) {
-  const apiKey = (geminiApiKey || '').trim();
-  if (!apiKey) {
-    return {
-      ok: false,
-      isRateLimit: false,
-      text: '',
-      error: 'Gemini API 키가 설정되지 않았습니다. 상단 [동기화 · AI키 설정]에서 키를 입력해 주세요.',
-    };
+async function callGeminiWithFallback(promptText, apiKey, useSearch = false) {
+  const cleanKey = (apiKey || '').trim();
+  if (!cleanKey) {
+    return { ok: false, text: '', error: 'Gemini API 키가 설정되지 않았습니다.' };
   }
 
-  const activeModel = await resolveWorkingGeminiModel(apiKey);
-  const baseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${activeModel}:generateContent`;
-  const reqHeaders = {
-    'Content-Type': 'application/json',
-    'x-goog-api-key': apiKey,
-  };
+  // 무료 티어 할당량이 가장 안정적인 정식(GA) 모델 우선 사용
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+  let lastErr = '';
 
-  const payload = {
-    contents: [{ parts: [{ text: userQuery }] }],
-    ...(useSearch ? { tools: [{ google_search: {} }] } : {}),
-  };
-
-  try {
-    const response = await fetch(baseUrl, {
-      method: 'POST',
-      headers: reqHeaders,
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      if (response.status === 429) {
-        return {
-          ok: false,
-          isRateLimit: true,
-          text: '',
-          error:
-            'AI 무료 사용 한도(분당 또는 일일 할당량)를 모두 소진했습니다. 추가 호출을 즉시 중지합니다.',
-        };
-      }
-
-      if (response.status === 404) {
-        cachedAvailableModel = '';
-      }
-
-      const errBody = await response.text().catch(() => '');
-      return {
-        ok: false,
-        isRateLimit: false,
-        text: '',
-        error: `API 요청 오류 (HTTP ${response.status}): ${errBody.slice(0, 100)}`,
+  for (const model of modelsToTry) {
+    try {
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+      const body = {
+        contents: [{ role: 'user', parts: [{ text: promptText }] }],
+        generationConfig: { temperature: 0.1 },
       };
-    }
 
-    const result = await response.json();
-    const parts = result?.candidates?.[0]?.content?.parts || [];
-    const rawText = parts.map((p) => p.text || '').join('\n').trim();
-    if (rawText) {
-      return { ok: true, isRateLimit: false, text: rawText, error: '' };
-    }
+      if (useSearch) {
+        body.tools = [{ google_search: {} }];
+      }
 
-    return {
-      ok: false,
-      isRateLimit: false,
-      text: '',
-      error: 'AI 응답 내용이 비어 있습니다.',
-    };
-  } catch (err) {
-    return {
-      ok: false,
-      isRateLimit: false,
-      text: '',
-      error: `네트워크 연결 오류: ${err?.message || '알 수 없는 오류'}`,
-    };
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-goog-api-key': cleanKey,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (res.status === 429) {
+        lastErr = '무료 사용 한도 초과 (429)';
+        // 무료 티어 분당/일일 한도 초과 시 즉시 중단하여 불필요한 연쇄 호출 방지
+        return { ok: false, text: '', error: lastErr, isRateLimit: true };
+      }
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        lastErr = errData?.error?.message || `HTTP ${res.status}`;
+        continue;
+      }
+
+      const data = await res.json();
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      const text = parts.map((p) => p.text || '').join('\n').trim();
+      if (text) {
+        return { ok: true, text, error: '' };
+      }
+    } catch (e) {
+      lastErr = e.message || '네트워크 오류';
+    }
   }
+
+  return { ok: false, text: '', error: lastErr || 'AI 응답을 가져오지 못했습니다.' };
 }
+
 
 export async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
   const combinedQuery = buildRegionCompanyQuery(partner.companyName, partner.address);
