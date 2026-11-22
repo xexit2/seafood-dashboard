@@ -474,7 +474,7 @@ export default function PartnerTableSection({
                           title={`${partner.companyName} 삭제`}
                           className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
                         >
-                          <Trash2 className="w-3 h-3" />
+                          <X className="w-3 h-3" />
                           삭제
                         </button>
                       </div>
