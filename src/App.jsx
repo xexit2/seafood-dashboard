@@ -819,9 +819,10 @@ export default function App() {
 
   const handleStartTopIngredientsSearch = async (mode = 'new') => {
     setActiveModal(null);
-    if (i + batchSize < total && !abortSearchRef.current) {
-        await new Promise((r) => setTimeout(r, 4000));
-      }
+    if (partners.length === 0) {
+      showToast('먼저 엑셀 파일을 업로드해 거래업체를 등록해 주세요.');
+      return;
+    }
 
     const isFullRescan = mode === 'all';
     const targetsToSearch = isFullRescan
@@ -831,8 +832,9 @@ export default function App() {
     abortSearchRef.current = false;
     setIsSearchingTopIngredients(true);
 
-    const batchSize = 15;
-    const MAX_BATCHES_PER_RUN = 5; // 1회 실행당 최대 5배치(75개사) 과금 보호 제한
+    // 웹 검색 정확도 향상을 위해 10개사씩 묶고, 1회 클릭당 최대 6배치(60개사)까지 안전 실행
+    const batchSize = 10;
+    const MAX_BATCHES_PER_RUN = 6;
     const cappedTargets = targetsToSearch.slice(0, batchSize * MAX_BATCHES_PER_RUN);
     const total = cappedTargets.length;
     setSearchProgress({ done: 0, total });
@@ -873,7 +875,7 @@ export default function App() {
       setSearchProgress({ done: doneCount, total });
 
       if (i + batchSize < total && !abortSearchRef.current) {
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 4000));
       }
     }
 
@@ -983,7 +985,7 @@ export default function App() {
     if (newlyCount > 0) {
       await saveAndSyncAnalysisSnapshot(
         nextPartners,
-        isFullRescan ? '전체 재서칭' : '신규 업체 추가 갱신 (기존 보존)',
+        isFullRescan ? '전체 재서칭 (1·2번 통합)' : '신규 업체 추가 갱신 (기존 보존)',
         newlyCount,
         true
       );
@@ -1006,7 +1008,7 @@ export default function App() {
       );
     } else {
       showToast(
-        `${total}개사 분석 완료! (오늘 AI 호출 ${usageAfter.count}/${DAILY_AI_CALL_LIMIT}회${
+        `${total}개사 1·2번 분석 완료! (오늘 AI 호출 ${usageAfter.count}/${DAILY_AI_CALL_LIMIT}회${
           hasMoreUnsearched ? ' · 남은 업체는 [신규 업체만 서치]로 이어서 실행 가능' : ''
         })`
       );
