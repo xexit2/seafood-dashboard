@@ -688,11 +688,8 @@ export async function fetchSpeciesAuctionTrend(
       diff: 0,
       volume: '데이터 없음',
       status: '미집계',
-    })
-  ),
+    })),
   };
-
-  
 
   const batchRes = await fetchAllSpeciesAuctionBatch(
     { [cleanName]: baseObj },
@@ -708,23 +705,35 @@ export async function fetchSpeciesAuctionTrend(
     error: batchRes.error,
     data: batchRes.updatedMap[cleanName],
   };
-
-  
 }
+
 // 모든 업체의 1번(주력 원재료), 2번(대표·5점 리뷰 메뉴) 누적 현황을 저장 시간과 함께 텍스트로 포맷
 export function buildPartnersAnalysisSnapshotText(partners, meta = {}) {
   const savedAt = meta.savedAt || new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
   const modeLabel = meta.modeLabel || '누적 스냅샷';
   const newlyUpdatedCount = Number(meta.newlyUpdatedCount) || 0;
 
+  const DUMMY_TEXTS = new Set([
+    '미확인',
+    '선망 참고등어 / 선어 모듬',
+    '선망 참고등어',
+    '선어 모듬',
+    '네이버 메뉴 서칭 대기',
+  ]);
+
+  const cleanDummyList = (arr) =>
+    (Array.isArray(arr) ? arr : [])
+      .map((v) => String(v || '').trim())
+      .filter((v) => v && !DUMMY_TEXTS.has(v));
+
   const analyzedPartners = (Array.isArray(partners) ? partners : []).filter(
     (p) =>
       p &&
       (p.topIngredientSearched ||
         p.isSearched ||
-        (Array.isArray(p.extractedIngredients) && p.extractedIngredients.length > 0) ||
-        (Array.isArray(p.searchedMenus) && p.searchedMenus.length > 0) ||
-        Boolean(p.topReviewMenu))
+        cleanDummyList(p.extractedIngredients).length > 0 ||
+        cleanDummyList(p.searchedMenus).length > 0 ||
+        (p.topReviewMenu && !DUMMY_TEXTS.has(String(p.topReviewMenu).trim())))
   );
 
   const lines = [
@@ -742,18 +751,19 @@ export function buildPartnersAnalysisSnapshotText(partners, meta = {}) {
   }
 
   analyzedPartners.forEach((p, idx) => {
-    const ingList =
-      Array.isArray(p.extractedIngredients) && p.extractedIngredients.length > 0
-        ? p.extractedIngredients.join(', ')
-        : '';
+    const validIngs = cleanDummyList(p.extractedIngredients);
+    const ingList = validIngs.length > 0 ? validIngs.join(', ') : '';
 
     const menuCandidates = [];
-    if (p.topReviewMenu) {
-      menuCandidates.push(`5점리뷰1위: ${p.topReviewMenu}`);
+    const topMenu = String(p.topReviewMenu || '').trim();
+    if (topMenu && !DUMMY_TEXTS.has(topMenu)) {
+      menuCandidates.push(`5점리뷰1위: ${topMenu}`);
     }
-    if (Array.isArray(p.searchedMenus) && p.searchedMenus.length > 0) {
-      menuCandidates.push(p.searchedMenus.join(', '));
+    const validMenus = cleanDummyList(p.searchedMenus);
+    if (validMenus.length > 0) {
+      menuCandidates.push(validMenus.join(', '));
     }
+
     const menuText = menuCandidates.length > 0 ? menuCandidates.join(' / ') : '';
     const updatedStamp = p.lastAnalyzedAt ? ` (갱신시각: ${p.lastAnalyzedAt})` : '';
 
