@@ -819,10 +819,9 @@ export default function App() {
 
   const handleStartTopIngredientsSearch = async (mode = 'new') => {
     setActiveModal(null);
-    if (partners.length === 0) {
-      showToast('먼저 엑셀 파일을 업로드해 거래업체를 등록해 주세요.');
-      return;
-    }
+    if (i + batchSize < total && !abortSearchRef.current) {
+        await new Promise((r) => setTimeout(r, 4000));
+      }
 
     const isFullRescan = mode === 'all';
     const targetsToSearch = isFullRescan
