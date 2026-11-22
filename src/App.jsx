@@ -22,6 +22,7 @@ import PurchaseInsightSection from './components/PurchaseInsightSection';
 import TopIngredientsSection from './components/TopIngredientsSection';
 import PartnerTableSection from './components/PartnerTableSection';
 import Modals from './components/Modals';
+import PdfViewerModal from './components/PdfViewerModal';
 import {
   APP_ID,
   DEFAULT_MASTER_PIN,
@@ -165,6 +166,25 @@ export default function App() {
   const [searchingPartnerIds, setSearchingPartnerIds] = useState({});
   const [isBatchSearching, setIsBatchSearching] = useState(false);
   const [selectedPartnerDetail, setSelectedPartnerDetail] = useState(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [savedPdfLink, setSavedPdfLink] = useState(() => {
+    try {
+      return localStorage.getItem(`${APP_ID}_pdf_link`) || '';
+    } catch {
+      return '';
+    }
+  });
+
+  const handleSavePdfLink = (link) => {
+    setSavedPdfLink(link);
+    try {
+      localStorage.setItem(`${APP_ID}_pdf_link`, link);
+    } catch {
+      // 무시
+    }
+    showToast('공용 PDF 자료 링크가 저장되었습니다.');
+  };
 
   const [topIngredientsState, setTopIngredientsState] = useState({
     items: [],
@@ -1675,6 +1695,60 @@ export default function App() {
 
             <div className="h-5 w-px bg-slate-200 mx-0.5 hidden sm:block" />
 
+            <div className="relative">
+           <button
+             onClick={() => setIsMenuOpen((prev) => !prev)}
+             aria-label="전체 메뉴 열기"
+             title="메뉴 및 PDF 자료실"
+             className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white hover:bg-slate-100 text-slate-700 cursor-pointer"
+           >
+             <svg
+               className="w-5 h-5"
+               fill="none"
+               stroke="currentColor"
+               strokeWidth="2"
+               viewBox="0 0 24 24"
+             >
+               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+             </svg>
+           </button>
+
+           {isMenuOpen && (
+             <div className="absolute right-0 mt-2 w-56 rounded-2xl bg-white shadow-xl border border-slate-200 py-2 z-50 text-xs">
+               <button
+                 onClick={() => {
+                   setIsMenuOpen(false);
+                   setIsPdfModalOpen(true);
+                 }}
+                 className="w-full px-4 py-2.5 text-left font-bold text-sky-700 hover:bg-sky-50 flex items-center gap-2 cursor-pointer"
+               >
+                 <FileSpreadsheet className="w-4 h-4 text-rose-600" />
+                 <span>PDF 자료실 보기 (단가표·명세서)</span>
+               </button>
+               <button
+                 onClick={() => {
+                   setIsMenuOpen(false);
+                   handleManualDownloadSnapshot();
+                 }}
+                 className="w-full px-4 py-2.5 text-left font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+               >
+                 <Download className="w-4 h-4 text-indigo-600" />
+                 <span>분석 누적 TXT 다운로드</span>
+               </button>
+               <button
+                 onClick={() => {
+                   setIsMenuOpen(false);
+                   setActiveModal('cloud');
+                 }}
+                 className="w-full px-4 py-2.5 text-left font-semibold text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+               >
+                 <Database className="w-4 h-4 text-sky-600" />
+                 <span>동기화 · 드라이브 폴더 설정</span>
+               </button>
+             </div>
+           )}
+         </div>
+
             <button
               onClick={() => {
                 setIsChangingPin(true);
@@ -1892,6 +1966,12 @@ export default function App() {
         newAuctionForm={newAuctionForm}
         setNewAuctionForm={setNewAuctionForm}
         onAddAuction={handleAddAuction}
+      />
+        <PdfViewerModal
+        isOpen={isPdfModalOpen}
+        onClose={() => setIsPdfModalOpen(false)}
+        savedPdfLink={savedPdfLink}
+        onSavePdfLink={handleSavePdfLink}
       />
     </div>
   );

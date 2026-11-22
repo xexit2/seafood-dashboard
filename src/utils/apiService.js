@@ -815,28 +815,30 @@ export function buildPartnersAnalysisSnapshotText(partners, meta = {}) {
 }
 
 // Google Apps Script 웹 앱 URL을 통해 내 구글 드라이브로 텍스트 파일 자동 업로드
-export async function uploadSnapshotToGoogleDrive(webhookUrl, fileName, content) {
+export async function uploadSnapshotToGoogleDrive(
+  webhookUrl,
+  fileName,
+  content,
+  folderName = '수산물_대시보드_분석이력'
+) {
   const cleanUrl = String(webhookUrl || '').trim();
   if (!cleanUrl) {
-    return { ok: false, skipped: true, error: '구글 드라이브 웹 앱 URL 미설정' };
+    return { ok: false, error: '구글 드라이브 웹훅 URL이 설정되지 않았습니다.' };
   }
 
   try {
-    const res = await fetch(cleanUrl, {
+    await fetch(cleanUrl, {
       method: 'POST',
+      mode: 'no-cors',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ fileName, content }),
+      body: JSON.stringify({
+        folderName,
+        fileName,
+        content,
+      }),
     });
-    if (!res.ok) {
-      return { ok: false, error: `HTTP ${res.status}` };
-    }
-    const data = await res.json().catch(() => ({ ok: true }));
-    return {
-      ok: Boolean(data?.ok !== false),
-      fileUrl: data?.fileUrl || '',
-      error: data?.error || '',
-    };
+    return { ok: true, error: '' };
   } catch (err) {
-    return { ok: false, error: err?.message || '구글 드라이브 전송 오류' };
+    return { ok: false, error: err?.message || '구글 드라이브 전송 실패' };
   }
 }
