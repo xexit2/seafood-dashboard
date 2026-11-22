@@ -1,6 +1,48 @@
 import { buildRegionCompanyQuery } from './excelParser';
 import { DEFAULT_SOUTH_MARKETS } from '../constants/initialData';
 
+// 유료 API 과금 방지용 일일 호출 상한 설정 (KST 기준 하루 최대 30회)
+export const DAILY_AI_CALL_LIMIT = 30;
+const AI_USAGE_STORAGE_KEY = 'seasecret_ai_daily_usage_v1';
+
+function getTodayKstKey() {
+  const kst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const yyyy = kst.getUTCFullYear();
+  const mm = String(kst.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(kst.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+export function getDailyAiUsageStats() {
+  const today = getTodayKstKey();
+  try {
+    const raw = localStorage.getItem(AI_USAGE_STORAGE_KEY);
+    if (!raw) return { date: today, count: 0, limit: DAILY_AI_CALL_LIMIT };
+    const parsed = JSON.parse(raw);
+    if (parsed?.date !== today) {
+      return { date: today, count: 0, limit: DAILY_AI_CALL_LIMIT };
+    }
+    return {
+      date: today,
+      count: Number(parsed.count) || 0,
+      limit: DAILY_AI_CALL_LIMIT,
+    };
+  } catch {
+    return { date: today, count: 0, limit: DAILY_AI_CALL_LIMIT };
+  }
+}
+
+function incrementDailyAiUsage() {
+  const stats = getDailyAiUsageStats();
+  const next = { date: stats.date, count: stats.count + 1 };
+  try {
+    localStorage.setItem(AI_USAGE_STORAGE_KEY, JSON.stringify(next));
+  } catch {
+    // 저장소 제한 무시
+  }
+  return next.count;
+}
+
 function parseFlexibleJson(rawText) {
   if (!rawText) return null;
   let cleaned = String(rawText)
@@ -24,112 +66,74 @@ function parseFlexibleJson(rawText) {
   }
 }
 
-// API 키에서 실제로 사용 가능한 최신 Flash 모델명을 1회 자동 조회해 캐싱
-let cachedAvailableModel = '';
-
-async function resolveWorkingGeminiModel(apiKey) {
-  if (cachedAvailableModel) return cachedAvailableModel;
-
-  try {
-    const res = await fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models?pageSize=50',
-      { headers: { 'x-goog-api-key': apiKey } }
-    );
-    if (res.ok) {
-      const data = await res.json();
-      const models = Array.isArray(data?.models) ? data.models : [];
-      const supported = models
-        .filter(
-          (m) =>
-            Array.isArray(m.supportedGenerationMethods) &&
-            m.supportedGenerationMethods.includes('generateContent')
-        )
-        .map((m) => String(m.name || '').replace(/^models\//, ''));
-
-      const preferredOrder = [
-        'gemini-3-flash-preview',
-        'gemini-2.5-flash-preview-05-20',
-        'gemini-2.5-flash',
-        'gemini-2.0-flash',
-        'gemini-1.5-flash',
-      ];
-      for (const candidate of preferredOrder) {
-        if (supported.includes(candidate)) {
-          cachedAvailableModel = candidate;
-          return candidate;
-        }
-      }
-      const anyFlash = supported.find((name) => name.includes('flash'));
-      if (anyFlash) {
-        cachedAvailableModel = anyFlash;
-        return anyFlash;
-      }
-    }
-  } catch (_) {
-    // 목록 조회 실패 시 기본값 사용
-  }
-
-  cachedAvailableModel = 'gemini-3-flash-preview';
-  return cachedAvailableModel;
-}
-
-// 429(사용 한도 초과) 발생 시 연쇄 호출이나 재시도 없이 즉시 중단하는 단일 호출 함수
+// 일일 호출 상한(Safety Cap) 및 단일 모델(gemini-2.5-flash) 고정 호출 함수
 async function callGeminiWithFallback(promptText, apiKey, useSearch = false) {
   const cleanKey = (apiKey || '').trim();
   if (!cleanKey) {
     return { ok: false, text: '', error: 'Gemini API 키가 설정되지 않았습니다.' };
   }
 
-  // 지원 종료된 gemini-2.0-flash 제거 -> 현행 활성 모델 순차 시도
-  const modelsToTry = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-2.5-flash-lite'];
-  let lastErr = '';
-
-  for (const model of modelsToTry) {
-    try {
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
-      const body = {
-        contents: [{ role: 'user', parts: [{ text: promptText }] }],
-        generationConfig: { temperature: 0.1 },
-      };
-
-      if (useSearch) {
-        body.tools = [{ google_search: {} }];
-      }
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': cleanKey,
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (res.status === 429) {
-        lastErr = '무료 사용 한도 초과 (429)';
-        return { ok: false, text: '', error: lastErr, isRateLimit: true };
-      }
-
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        lastErr = errData?.error?.message || `HTTP ${res.status}`;
-        continue;
-      }
-
-      const data = await res.json();
-      const parts = data?.candidates?.[0]?.content?.parts || [];
-      const text = parts.map((p) => p.text || '').join('\n').trim();
-      if (text) {
-        return { ok: true, text, error: '' };
-      }
-    } catch (e) {
-      lastErr = e.message || '네트워크 오류';
-    }
+  // 안전장치 1: 일일 호출 상한 초과 시 즉시 차단
+  const usage = getDailyAiUsageStats();
+  if (usage.count >= DAILY_AI_CALL_LIMIT) {
+    return {
+      ok: false,
+      text: '',
+      error: `안전장치 작동: 오늘 AI 호출 상한(${DAILY_AI_CALL_LIMIT}회)에 도달하여 자동 차단되었습니다.`,
+      isRateLimit: true,
+    };
   }
 
-  return { ok: false, text: '', error: lastErr || 'AI 응답을 가져오지 못했습니다.' };
-}
+  // 안전장치 2: 다중 폴백 중복 과금 방지를 위해 안정화 단일 모델만 사용
+  const model = 'gemini-2.5-flash';
+  incrementDailyAiUsage();
 
+  try {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+    const body = {
+      contents: [{ role: 'user', parts: [{ text: promptText }] }],
+      generationConfig: { temperature: 0.1 },
+    };
+
+    if (useSearch) {
+      body.tools = [{ google_search: {} }];
+    }
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': cleanKey,
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (res.status === 429) {
+      return {
+        ok: false,
+        text: '',
+        error: 'API 사용 한도 초과 (429)',
+        isRateLimit: true,
+      };
+    }
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      const msg = errData?.error?.message || `HTTP ${res.status}`;
+      return { ok: false, text: '', error: msg };
+    }
+
+    const data = await res.json();
+    const parts = data?.candidates?.[0]?.content?.parts || [];
+    const text = parts.map((p) => p.text || '').join('\n').trim();
+    if (text) {
+      return { ok: true, text, error: '' };
+    }
+    return { ok: false, text: '', error: 'AI 응답이 비어 있습니다.' };
+  } catch (e) {
+    return { ok: false, text: '', error: e.message || '네트워크 오류' };
+  }
+}
 
 export async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
   const combinedQuery = buildRegionCompanyQuery(partner.companyName, partner.address);
@@ -185,7 +189,7 @@ export async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
     instagramUrl: defaultInstaSearchUrl,
     blogUrl: naverPlaceMenuUrl,
     summary: !(geminiApiKey || '').trim()
-      ? `[${combinedQuery}] 실제 사이트에서 AI 자동 분석을 쓰려면 상단 [동기화 설정]에 무료 Gemini API 키를 입력해 주세요. 아래 '네이버 메뉴' 버튼으로 즉시 확인 가능합니다.`
+      ? `[${combinedQuery}] 실제 사이트에서 AI 자동 분석을 쓰려면 상단 [동기화 설정]에 Gemini API 키를 입력해 주세요. 아래 '네이버 메뉴' 버튼으로 즉시 확인 가능합니다.`
       : `[${combinedQuery}] 네이버 리뷰·메뉴 검색 결과를 불러오지 못했습니다 (${res.error}). 우측 '네이버 메뉴' 버튼으로 바로 확인하세요.`,
   };
 }
@@ -202,14 +206,14 @@ export async function searchTopIngredientsBatch(partnersBatch, geminiApiKey = ''
     })
     .join('\n');
 
-  const userQuery = `다음 대한민국 식당/수산 업체들의 네이버 플레이스 메뉴와 방문자 리뷰를 검색해서, 각 업체가 주력으로 사용하는 "메인 식재료(원재료)"만 추출해줘.
+  const userQuery = `다음 대한민국 식당/수산 업체들의 상호명, 업종 특징 및 알려진 대표 메뉴를 바탕으로, 각 업체가 주력으로 사용하는 "메인 식재료(원재료)"만 추출해줘.
 
 [업체 목록]
 ${listText}
 
 [필수 규칙]
 1. "삼치회", "금태구이", "고등어조림", "모듬회" 같은 완성된 음식명/요리명이 아니라, 그 요리의 핵심이 되는 순수 "메인 원재료명"만 적어줘. (예: "삼치", "금태", "고등어", "전갱이", "대방어", "갈치", "참돔", "광어", "우럭", "오징어", "문어", "전복", "꽃게", "새우", "한우", "돼지고기", "장어", "아귀", "복어" 등 단일 표준 원재료명)
-2. 네이버 검색 결과에서 메뉴나 주력 식재료를 명확히 확인할 수 없는 업체는 억지로 추측하지 말고 ingredients를 빈 배열 [] 로 반환해줘.
+2. 주력 식재료를 명확히 판단할 수 없는 업체는 억지로 추측하지 말고 ingredients를 빈 배열 [] 로 반환해줘.
 3. 설명 문장 없이 반드시 아래 순수 JSON 형식만 출력해줘:
 {
   "results": [
@@ -217,7 +221,8 @@ ${listText}
   ]
 }`;
 
-  const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
+  // 대량 배치 시 고가의 Google Search 그라운딩 과금 방지를 위해 useSearch = false 적용
+  const res = await callGeminiWithFallback(userQuery, geminiApiKey, false);
   if (!res.ok) {
     return { items: [], error: res.error, isRateLimit: res.isRateLimit };
   }
@@ -382,14 +387,13 @@ function extractDataGoItems(rawText) {
 }
 
 // 공공데이터포털(해양수산부_위판장별 위탁 판매 현황 /getselect0040List) 공식 Open API 조회
-// 최근 3영업일 이내 데이터만 유효 인정하며, 미확인 시 디폴트 더미값 대신 0으로 반환
 export async function fetchPublicDataAuctionPrices(
   speciesMap,
   publicDataKey = '',
   defaultMarkets = DEFAULT_SOUTH_MARKETS
 ) {
   const keys = Object.keys(speciesMap || {});
-  const { labels7d, labels30d, todayLabel } = buildRecentDateLabels();
+  const { labels7d, labels30d } = buildRecentDateLabels();
 
   const buildZeroMap = () => {
     const map = {};
@@ -409,7 +413,6 @@ export async function fetchPublicDataAuctionPrices(
     };
   }
 
-  // 최근 3일 날짜 목록 (YYYYMMDD) - 오래된 과거 데이터 배제
   const recent3Ymd = [];
   const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
   for (let i = 0; i < 3; i++) {
@@ -532,7 +535,6 @@ export async function fetchPublicDataAuctionPrices(
         ).trim();
         const updatedUnitLabel = sampleUnitNm ? `원/${sampleUnitNm}` : existing?.unit || '원/kg';
 
-        // 해당 위판장에 실제 거래가 없으면 디폴트 가격 대신 0과 '거래 없음'으로 표시
         const normalizedMarkets = marketList.map((mName, idx) => {
           const shortMarket = mName
             .replace('위판장', '')
@@ -626,7 +628,7 @@ export async function fetchPublicDataAuctionPrices(
   }
 }
 
-// 등록된 전체 어종 시세 일괄 갱신 (데이터 미수신 시 디폴트 대신 0원으로 반환)
+// 등록된 전체 어종 시세 일괄 갱신 (공공데이터 키 미설정 시 AI 할당량 보호를 위해 0원 반환)
 export async function fetchAllSpeciesAuctionBatch(
   speciesMap,
   geminiApiKey = '',
@@ -648,105 +650,17 @@ export async function fetchAllSpeciesAuctionBatch(
     };
   }
 
-  // 공공데이터 키가 비어 있을 때만 Gemini AI 조회 사용 (실패 시 0원으로 반환)
-  const keys = Object.keys(speciesMap || {});
-  const { labels7d, labels30d, todayLabel } = buildRecentDateLabels();
-
-  const speciesSpecs = keys
-    .map((k) => {
-      const sp = speciesMap[k];
-      const mList =
-        Array.isArray(sp?.markets) && sp.markets.length > 0
-          ? sp.markets.map((m) => m.market)
-          : defaultMarkets;
-      return `- ${k} (규격: ${sp?.grade || '표준'}, 단위: ${sp?.unit || '원/kg'}, 위판장: ${mList.join(', ')})`;
-    })
-    .join('\n');
-
-  const userQuery = `오늘(${todayLabel}) 기준 대한민국 부산 인근 및 남해권 주요 수협 위판장의 아래 수산물 어종별 최신 도매 위판 시세(낙찰가)를 검색해서 JSON으로 정리해줘.
-
-[조회 대상 어종 및 위판장]
-${speciesSpecs}
-
-[필수 규칙]
-1. 반드시 모든 대상 어종(${keys.join(', ')})을 포함하고, 확인되지 않은 시세는 추측하지 말고 0으로 넣어줘.
-2. 설명 없이 반드시 아래 순수 JSON 객체만 출력해줘:
-{
-  "species": {
-    "${keys[0] || '삼치'}": {
-      "currentAvg": 0,
-      "prevDiffRate": 0,
-      "history7d": [{ "date": "${labels7d[6]}", "price": 0 }],
-      "history30d": [{ "date": "${labels30d[4]}", "price": 0 }],
-      "markets": [
-        { "market": "부산공동어시장", "price": 0, "diff": 0, "volume": "데이터 없음", "status": "미집계" }
-      ]
-    }
-  }
-}`;
-
-  const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
-  const parsed = res.ok ? parseFlexibleJson(res.text) : null;
-  const parsedSpeciesObj = parsed?.species || parsed || {};
-
-  const updatedMap = {};
-  let liveUpdatedCount = 0;
-
-  for (const k of keys) {
-    const existing = speciesMap[k];
-    const found = parsedSpeciesObj[k];
-    const marketList =
-      Array.isArray(existing?.markets) && existing.markets.length > 0
-        ? existing.markets.map((m) => m.market)
-        : defaultMarkets;
-
-    if (found && Number(found.currentAvg) > 0) {
-      liveUpdatedCount += 1;
-      const newAvg = Number(found.currentAvg);
-      const rawMarkets = Array.isArray(found.markets) ? found.markets : [];
-      const normalizedMarkets = marketList.map((mName, idx) => {
-        const matchedM =
-          rawMarkets.find(
-            (pm) =>
-              String(pm?.market || '').includes(mName.replace('위판장', '')) ||
-              mName.includes(String(pm?.market || ''))
-          ) || rawMarkets[idx];
-
-        const mPrice = Number(matchedM?.price) || 0;
-        return {
-          market: mName,
-          price: mPrice,
-          diff: mPrice > 0 ? Number(matchedM?.diff) || 0 : 0,
-          volume: mPrice > 0 ? String(matchedM?.volume || '집계중') : '데이터 없음',
-          status: mPrice > 0 ? String(matchedM?.status || '보합') : '미집계',
-        };
-      });
-
-      const norm7d = normalizeHistoryDates(found.history7d, labels7d, 0);
-      norm7d[norm7d.length - 1] = { date: todayLabel, price: newAvg };
-      const norm30d = normalizeHistoryDates(found.history30d, labels30d, 0);
-      norm30d[norm30d.length - 1] = { date: todayLabel, price: newAvg };
-
-      updatedMap[k] = {
-        ...existing,
-        currentAvg: newAvg,
-        prevDiffRate: Number(found.prevDiffRate) || 0,
-        hasLiveData: true,
-        history7d: norm7d,
-        history30d: norm30d,
-        markets: normalizedMarkets,
-      };
-    } else {
-      updatedMap[k] = buildEmptySpeciesRecord(existing, labels7d, labels30d, defaultMarkets);
-    }
-  }
-
+  const pubRes = await fetchPublicDataAuctionPrices(
+    speciesMap,
+    publicDataKey,
+    defaultMarkets
+  );
   return {
-    updatedMap,
-    liveUpdatedCount,
-    source: 'ai',
-    isRateLimit: res.isRateLimit,
-    error: res.ok ? '' : res.error,
+    updatedMap: pubRes.updatedMap,
+    liveUpdatedCount: pubRes.matchedCount,
+    source: 'public',
+    isRateLimit: false,
+    error: pubRes.error,
   };
 }
 
