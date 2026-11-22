@@ -2,7 +2,7 @@ import { buildRegionCompanyQuery } from './excelParser';
 import { DEFAULT_SOUTH_MARKETS } from '../constants/initialData';
 
 // 유료 API 과금 방지용 일일 호출 상한 설정 (KST 기준 하루 최대 30회)
-export const DAILY_AI_CALL_LIMIT = 30;
+export const DAILY_AI_CALL_LIMIT = 150;
 const AI_USAGE_STORAGE_KEY = 'seasecret_ai_daily_usage_v1';
 
 function getTodayKstKey() {
