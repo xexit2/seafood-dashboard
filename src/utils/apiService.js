@@ -206,22 +206,30 @@ export async function searchTopIngredientsBatch(partnersBatch, geminiApiKey = ''
     })
     .join('\n');
 
-  const userQuery = `다음 대한민국 식당/수산 업체들의 상호명, 업종 특징 및 알려진 대표 메뉴를 바탕으로, 각 업체가 주력으로 사용하는 "메인 식재료(원재료)"만 추출해줘.
+  const userQuery = `다음 대한민국 식당/수산 업체들의 상호명, 업종 특징 및 알려진 대표 메뉴를 바탕으로, 각 업체의 [1번: 주력 메인 원재료]와 [2번: 대표·인기 요리 메뉴]를 함께 추출해줘.
 
 [업체 목록]
 ${listText}
 
 [필수 규칙]
-1. "삼치회", "금태구이", "고등어조림", "모듬회" 같은 완성된 음식명/요리명이 아니라, 그 요리의 핵심이 되는 순수 "메인 원재료명"만 적어줘. (예: "삼치", "금태", "고등어", "전갱이", "대방어", "갈치", "참돔", "광어", "우럭", "오징어", "문어", "전복", "꽃게", "새우", "한우", "돼지고기", "장어", "아귀", "복어" 등 단일 표준 원재료명)
-2. 주력 식재료를 명확히 판단할 수 없는 업체는 억지로 추측하지 말고 ingredients를 빈 배열 [] 로 반환해줘.
-3. 설명 문장 없이 반드시 아래 순수 JSON 형식만 출력해줘:
+1. "ingredients" (1번 정보): 완성된 요리명이 아닌 핵심 순수 "메인 원재료명"만 적어줘. (예: "삼치", "금태", "고등어", "전갱이", "대방어", "갈치", "참돔", "광어", "우럭", "오징어", "문어", "전복", "꽃게", "새우", "한우", "돼지고기", "장어", "아귀", "복어" 등)
+2. "topMenu" (2번 정보 1순위): 해당 업체의 가장 대표적인 시그니처 요리·메뉴명 1개 (예: "숙성모듬회", "삼치회", "금태구이", "고등어봉초밥", "오마카세" 등).
+3. "menus" (2번 정보 전체): 확인되는 대표 요리·메뉴명 1~3개 배열.
+4. 정보 확인이 어려운 업체는 억지로 추측하지 말고 ingredients: [], topMenu: "", menus: [] 로 반환해줘.
+5. 설명 문장 없이 반드시 아래 순수 JSON 형식만 출력해줘:
 {
   "results": [
-    { "idx": 1, "companyName": "업체명", "ingredients": ["삼치", "고등어"] }
+    {
+      "idx": 1,
+      "companyName": "업체명",
+      "ingredients": ["삼치", "고등어"],
+      "topMenu": "삼치회",
+      "menus": ["삼치회", "고등어봉초밥"]
+    }
   ]
 }`;
 
-  // 대량 배치 시 고가의 Google Search 그라운딩 과금 방지를 위해 useSearch = false 적용
+  // 대량 배치 시 고가의 Google Search 그라운딩 과금 방지를 위해 useSearch = false 유지
   const res = await callGeminiWithFallback(userQuery, geminiApiKey, false);
   if (!res.ok) {
     return { items: [], error: res.error, isRateLimit: res.isRateLimit };
@@ -245,6 +253,13 @@ ${listText}
               p.companyName.includes(String(r?.companyName || ''))
           ) || partnersBatch[i];
 
+    const validMenus = Array.isArray(r?.menus)
+      ? r.menus
+          .map((m) => String(m).trim())
+          .filter((m) => m.length >= 1 && m !== '없음' && m !== '확인불가')
+      : [];
+    const topMenu = String(r?.topMenu || '').trim() || validMenus[0] || '';
+
     return {
       companyName: matchedPartner ? matchedPartner.companyName : String(r?.companyName || ''),
       ingredients: Array.isArray(r?.ingredients)
@@ -252,6 +267,8 @@ ${listText}
             .map((ing) => String(ing).trim().replace(/(회|구이|조림|찜|탕|무침|초밥|덮밥)$/, ''))
             .filter((ing) => ing.length >= 1 && ing !== '없음' && ing !== '확인불가')
         : [],
+      topMenu,
+      menus: validMenus,
     };
   });
 

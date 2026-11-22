@@ -863,7 +863,11 @@ export default function App() {
         const ings = Array.isArray(matched?.ingredients)
           ? Array.from(new Set(matched.ingredients))
           : [];
-        newlyFoundMap[p.id] = ings;
+        const menus = Array.isArray(matched?.menus)
+          ? Array.from(new Set(matched.menus))
+          : [];
+        const topMenu = String(matched?.topMenu || '').trim() || menus[0] || '';
+        newlyFoundMap[p.id] = { ingredients: ings, topMenu, menus };
       });
 
       const doneCount = Math.min(i + batch.length, total);
@@ -878,12 +882,17 @@ export default function App() {
     const newlyCount = Object.keys(newlyFoundMap).length;
 
     const nextPartners = partners.map((p) => {
-      // 이번에 새로 서치된 업체만 업데이트 (기존 저장된 업체는 재갱신하지 않고 보존)
       if (Object.prototype.hasOwnProperty.call(newlyFoundMap, p.id)) {
+        const found = newlyFoundMap[p.id];
         return {
           ...p,
           topIngredientSearched: true,
-          extractedIngredients: newlyFoundMap[p.id],
+          extractedIngredients: found.ingredients,
+          topReviewMenu: found.topMenu || p.topReviewMenu || '',
+          searchedMenus:
+            found.menus.length > 0 ? found.menus : p.searchedMenus || [],
+          mainProduct:
+            found.menus.length > 0 ? found.menus.join(' · ') : p.mainProduct || '',
           lastAnalyzedAt: schedule.formattedNow,
         };
       }
