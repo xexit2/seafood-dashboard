@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Building2,
   RefreshCw,
+  Download,
 } from './Icons';
 import { buildRegionCompanyQuery } from '../utils/excelParser';
 
@@ -21,6 +22,7 @@ export default function TopIngredientsSection({
   searchProgress,
   onRequestNewSearchConfirm,
   onRequestFullRescanConfirm,
+  onDownloadSnapshotTxt,
   onAbortSearch,
 }) {
   const { items = [], updatedAt = '', analyzedCount = 0, omittedCount = 0, lastError = '' } =
@@ -99,6 +101,16 @@ export default function TopIngredientsSection({
                   서치 중 ({searchProgress.done}/{searchProgress.total})
                 </span>
               </div>
+              {onDownloadSnapshotTxt && (
+              <button
+                type="button"
+                onClick={onDownloadSnapshotTxt}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>분석 이력 TXT 저장</span>
+              </button>
+            )}
             </>
           ) : (
             <>

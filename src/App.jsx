@@ -1535,7 +1535,7 @@ export default function App() {
               className="inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold rounded-lg border text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-indigo-600" />
-              <span className="hidden md:inline">분석 TXT 저장</span>
+              <span>분석 TXT 저장</span>
             </button>
             <button
               onClick={() => setActiveModal('cloud')}
