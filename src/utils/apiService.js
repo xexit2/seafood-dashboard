@@ -80,8 +80,8 @@ async function callGeminiWithFallback(promptText, apiKey, useSearch = false) {
     return { ok: false, text: '', error: 'Gemini API 키가 설정되지 않았습니다.' };
   }
 
-  // 무료 티어 할당량이 가장 안정적인 정식(GA) 모델 우선 사용
-  const modelsToTry = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+  // 지원 종료된 gemini-2.0-flash 제거 -> 현행 활성 모델 순차 시도
+  const modelsToTry = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-2.5-flash-lite'];
   let lastErr = '';
 
   for (const model of modelsToTry) {
@@ -107,7 +107,6 @@ async function callGeminiWithFallback(promptText, apiKey, useSearch = false) {
 
       if (res.status === 429) {
         lastErr = '무료 사용 한도 초과 (429)';
-        // 무료 티어 분당/일일 한도 초과 시 즉시 중단하여 불필요한 연쇄 호출 방지
         return { ok: false, text: '', error: lastErr, isRateLimit: true };
       }
 
@@ -634,18 +633,18 @@ export async function fetchAllSpeciesAuctionBatch(
   defaultMarkets = DEFAULT_SOUTH_MARKETS,
   publicDataKey = ''
 ) {
-  if ((publicDataKey || '').trim()) {
+  if (!(publicDataKey || '').trim()) {
     const pubRes = await fetchPublicDataAuctionPrices(
       speciesMap,
-      publicDataKey,
+      '',
       defaultMarkets
     );
     return {
       updatedMap: pubRes.updatedMap,
-      liveUpdatedCount: pubRes.matchedCount,
+      liveUpdatedCount: 0,
       source: 'public',
       isRateLimit: false,
-      error: pubRes.error,
+      error: '공공데이터 인증키 미설정 (시세 0원 유지 · AI 할당량 보호)',
     };
   }
 
