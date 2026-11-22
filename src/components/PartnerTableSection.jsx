@@ -4,6 +4,7 @@ import {
   Loader2,
   Sparkles,
   Upload,
+  Plus,
   Search,
   MapPin,
   Filter,
@@ -29,6 +30,7 @@ export default function PartnerTableSection({
   setCategoryFilter,
   availableRegions,
   speciesData,
+  speciesKeys,
   currentPage,
   setCurrentPage,
   totalPages,
@@ -38,10 +40,17 @@ export default function PartnerTableSection({
   selectedPartnerDetail,
   setSelectedPartnerDetail,
   onClearAllPartners,
+  onDeletePartner,
   onBatchSearchCurrentPage,
   onOpenExcelModal,
+  onOpenAddPartnerModal,
   onSearchSinglePartnerMenu,
 }) {
+  const categoryOptions =
+    Array.isArray(speciesKeys) && speciesKeys.length > 0
+      ? speciesKeys
+      : Object.keys(speciesData || {});
+
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
@@ -62,13 +71,13 @@ export default function PartnerTableSection({
         <div className="flex flex-wrap items-center gap-2">
           {partners.length > 0 && (
             <button
-              onClick={onClearAllPartners}
-              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-xl transition-colors cursor-pointer"
-              title="기존에 등록된 거래업체 목록을 모두 지우고 비웁니다"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              전체 업체 비우기
-            </button>
+                          onClick={() => onDeletePartner(partner)}
+                          title={`${partner.companyName} 삭제`}
+                          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+                        >
+                          <X className="w-3 h-3" />
+                          삭제
+                        </button>
           )}
           <button
             onClick={onBatchSearchCurrentPage}
@@ -81,6 +90,13 @@ export default function PartnerTableSection({
               <Sparkles className="w-3.5 h-3.5" />
             )}
             {isBatchSearching ? 'AI 메뉴 일괄 서칭 중...' : '현재 목록 AI 메뉴 일괄 서칭'}
+          </button>
+          <button
+            onClick={onOpenAddPartnerModal}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-xl transition-colors shadow-2xs cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            업체 개별 추가
           </button>
           <button
             onClick={onOpenExcelModal}
@@ -137,7 +153,7 @@ export default function PartnerTableSection({
               className="pl-8 pr-6 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
             >
               <option value="전체">전체 품목</option>
-{Object.keys(speciesData || {}).map((cat) => (
+              {categoryOptions.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>
@@ -243,7 +259,7 @@ export default function PartnerTableSection({
               <th className="py-3 px-3">소재지 주소</th>
               <th className="py-3 px-3">판매 메뉴 (AI 정리)</th>
               <th className="py-3 px-3">인스타 · 블로그 · 검색 바로가기</th>
-              <th className="py-3 px-3.5 text-center">메뉴·SNS 서칭</th>
+              <th className="py-3 px-3.5 text-center">메뉴 서칭 · 삭제</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-xs">
@@ -259,17 +275,26 @@ export default function PartnerTableSection({
                     </div>
                     <p className="text-xs text-slate-500 leading-relaxed">
                       {partners.length === 0
-                        ? '대표님의 발주처 엑셀 파일(.xlsx, .xls, .csv)을 업로드하시면 목록이 서버와 브라우저에 안전하게 저장됩니다.'
+                        ? '대표님의 발주처 엑셀 파일(.xlsx, .xls, .csv)을 업로드하거나 개별 추가 버튼으로 거래업체를 등록해 주세요.'
                         : '다른 검색어나 필터를 선택해 보세요.'}
                     </p>
                     {partners.length === 0 && (
-                      <button
-                        onClick={onOpenExcelModal}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer"
-                      >
-                        <Upload className="w-3.5 h-3.5" />
-                        엑셀 파일 업로드하기
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={onOpenAddPartnerModal}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-sky-600 hover:bg-sky-700 rounded-xl shadow-xs cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          업체 개별 추가
+                        </button>
+                        <button
+                          onClick={onOpenExcelModal}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs cursor-pointer"
+                        >
+                          <Upload className="w-3.5 h-3.5" />
+                          엑셀 파일 업로드
+                        </button>
+                      </div>
                     )}
                   </div>
                 </td>
@@ -327,7 +352,7 @@ export default function PartnerTableSection({
                     </td>
 
                     <td className="py-3 px-3 align-top max-w-[240px]">
-                      {partner.isSearched ? (
+                      {partner.isSearched || partner.searchedMenus?.length > 0 ? (
                         partner.searchedMenus?.length > 0 ? (
                           <div className="space-y-1">
                             <div className="flex flex-wrap gap-1">
@@ -416,32 +441,43 @@ export default function PartnerTableSection({
                     </td>
 
                     <td className="py-3 px-3.5 align-top text-center">
-                      <button
-                        onClick={() => onSearchSinglePartnerMenu(partner)}
-                        disabled={isSearchingThis}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
-                          partner.isSearched
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
-                            : 'bg-sky-600 text-white hover:bg-sky-700 shadow-2xs'
-                        }`}
-                      >
-                        {isSearchingThis ? (
-                          <>
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                            서칭중
-                          </>
-                        ) : partner.isSearched ? (
-                          <>
-                            <Check className="w-3 h-3" />
-                            재서칭
-                          </>
-                        ) : (
-                          <>
-                            <Sparkles className="w-3 h-3" />
-                            메뉴 서칭
-                          </>
-                        )}
-                      </button>
+                      <div className="inline-flex items-center gap-1.5">
+                        <button
+                          onClick={() => onSearchSinglePartnerMenu(partner)}
+                          disabled={isSearchingThis}
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
+                            partner.isSearched
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                              : 'bg-sky-600 text-white hover:bg-sky-700 shadow-2xs'
+                          }`}
+                        >
+                          {isSearchingThis ? (
+                            <>
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              서칭중
+                            </>
+                          ) : partner.isSearched ? (
+                            <>
+                              <Check className="w-3 h-3" />
+                              재서칭
+                            </>
+                          ) : (
+                            <>
+                              <Sparkles className="w-3 h-3" />
+                              메뉴 서칭
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          onClick={() => onDeletePartner(partner)}
+                          title={`${partner.companyName} 삭제`}
+                          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          삭제
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

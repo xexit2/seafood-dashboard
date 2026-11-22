@@ -69,6 +69,53 @@ function getKstScheduleInfo() {
   };
 }
 
+function recalculateTop5FromPartners(partnersList, existingTopState = {}) {
+  const ingredientPartnersMap = {};
+  let analyzedCount = 0;
+  let omittedCount = 0;
+
+  (Array.isArray(partnersList) ? partnersList : []).forEach((p) => {
+    const ings = Array.isArray(p?.extractedIngredients) ? p.extractedIngredients : [];
+    if (ings.length === 0) {
+      omittedCount += 1;
+    } else {
+      analyzedCount += 1;
+      ings.forEach((ing) => {
+        if (!ingredientPartnersMap[ing]) {
+          ingredientPartnersMap[ing] = [];
+        }
+        if (!ingredientPartnersMap[ing].some((item) => item.id === p.id)) {
+          ingredientPartnersMap[ing].push({
+            id: p.id,
+            companyName: p.companyName,
+            address: p.address || '',
+          });
+        }
+      });
+    }
+  });
+
+  const sorted = Object.entries(ingredientPartnersMap)
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, 5);
+  const totalMentions = sorted.reduce((acc, [, pList]) => acc + pList.length, 0) || 1;
+
+  const items = sorted.map(([name, pList], idx) => ({
+    rank: idx + 1,
+    name,
+    count: pList.length,
+    share: ((pList.length / totalMentions) * 100).toFixed(1),
+    partners: pList,
+  }));
+
+  return {
+    ...existingTopState,
+    items,
+    analyzedCount,
+    omittedCount,
+  };
+}
+
 export default function App() {
   const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [syncStatus, setSyncStatus] = useState('클라우드 연결 중...');
@@ -766,8 +813,39 @@ export default function App() {
     setPartners([]);
     setSelectedPartnerDetail(null);
     setCurrentPage(1);
-    await persistDashboardState({ partners: [] });
+    const nextTopState = recalculateTop5FromPartners([], topIngredientsState);
+    setTopIngredientsState(nextTopState);
+    await persistDashboardState({ partners: [], topIngredients: nextTopState });
     showToast('등록된 거래업체 목록이 모두 비워졌습니다.');
+  };
+
+  // 개별 거래업체 삭제 핸들러
+  const handleDeletePartner = async (partnerToDelete) => {
+    if (!partnerToDelete) return;
+    const confirmed = window.confirm(
+      `'${partnerToDelete.companyName}' 거래업체를 목록에서 삭제하시겠습니까?`
+    );
+    if (!confirmed) return;
+
+    const nextPartners = partners.filter((p) => p.id !== partnerToDelete.id);
+    if (selectedPartnerDetail?.id === partnerToDelete.id) {
+      setSelectedPartnerDetail(null);
+    }
+
+    const nextTopState = recalculateTop5FromPartners(nextPartners, topIngredientsState);
+    setPartners(nextPartners);
+    setTopIngredientsState(nextTopState);
+
+    const nextTotalPages = Math.max(1, Math.ceil(nextPartners.length / itemsPerPage));
+    if (currentPage > nextTotalPages) {
+      setCurrentPage(nextTotalPages);
+    }
+
+    await persistDashboardState({
+      partners: nextPartners,
+      topIngredients: nextTopState,
+    });
+    showToast(`'${partnerToDelete.companyName}' 업체가 삭제되었습니다.`);
   };
 
   const handleSearchAndAddSpecies = async (e) => {
@@ -848,16 +926,20 @@ export default function App() {
 
       const batch = cappedTargets.slice(i, i + batchSize);
       const batchRes = await searchTopIngredientsBatch(batch, supabaseConfig.geminiKey);
-      if (batchRes.error && !lastError) {
+      if (batchRes.error) {
         lastError = batchRes.error;
-      }
-
-      if (batchRes.isRateLimit) {
-        hitRateLimit = true;
+        if (batchRes.isRateLimit) {
+          hitRateLimit = true;
+        }
         break;
       }
 
       const returnedList = batchRes.items || [];
+      if (returnedList.length === 0) {
+        lastError = 'AI 검색 응답이 비어 있어 기존 데이터를 보존합니다.';
+        break;
+      }
+
       batch.forEach((p, bIdx) => {
         const matched =
           returnedList.find((r) => r.companyName === p.companyName) || returnedList[bIdx];
@@ -916,7 +998,7 @@ export default function App() {
           lastAnalyzedAt: schedule.formattedNow,
         };
       }
-      if (isFullRescan) {
+      if (isFullRescan && newlyCount > 0) {
         return {
           ...p,
           topIngredientSearched: false,
@@ -925,50 +1007,11 @@ export default function App() {
       return p;
     });
 
-    const ingredientPartnersMap = {};
-    let analyzedCount = 0;
-    let omittedCount = 0;
-
-    nextPartners.forEach((p) => {
-      const ings = Array.isArray(p.extractedIngredients) ? p.extractedIngredients : [];
-      if (ings.length === 0) {
-        omittedCount += 1;
-      } else {
-        analyzedCount += 1;
-        ings.forEach((ing) => {
-          if (!ingredientPartnersMap[ing]) {
-            ingredientPartnersMap[ing] = [];
-          }
-          if (!ingredientPartnersMap[ing].some((item) => item.id === p.id)) {
-            ingredientPartnersMap[ing].push({
-              id: p.id,
-              companyName: p.companyName,
-              address: p.address || '',
-            });
-          }
-        });
-      }
-    });
-
-    const sorted = Object.entries(ingredientPartnersMap)
-      .sort((a, b) => b[1].length - a[1].length)
-      .slice(0, 5);
-    const totalMentions = sorted.reduce((acc, [, pList]) => acc + pList.length, 0) || 1;
-
-    const top5Items = sorted.map(([name, pList], idx) => ({
-      rank: idx + 1,
-      name,
-      count: pList.length,
-      share: ((pList.length / totalMentions) * 100).toFixed(1),
-      partners: pList,
-    }));
-
+    const baseTop = recalculateTop5FromPartners(nextPartners, topIngredientsState);
     const nextTopState = {
-      items: top5Items,
+      ...baseTop,
       updatedAt: schedule.formattedNow,
-      analyzedCount,
-      omittedCount,
-      lastError: hitRateLimit ? lastError : top5Items.length === 0 ? lastError : '',
+      lastError: hitRateLimit ? lastError : baseTop.items.length === 0 ? lastError : '',
     };
 
     setPartners(nextPartners);
@@ -997,18 +1040,18 @@ export default function App() {
           `⚠️ 일일 AI 호출 상한(${DAILY_AI_CALL_LIMIT}회) 또는 한도에 도달하여 즉시 중지했습니다.`
       );
     } else if (abortSearchRef.current) {
-      showToast(`서치가 중지되었습니다. (누적 확인 ${analyzedCount}개사 결과 반영)`);
+      showToast(`서치가 중지되었습니다. (누적 확인 ${baseTop.analyzedCount}개사 결과 반영)`);
     } else if (total === 0 && !isFullRescan) {
       showToast(
-        `신규 미서치 업체가 없어 기존 저장 데이터(${analyzedCount}개사) 기준으로 TOP 5를 재정리했습니다.`
+        `신규 미서치 업체가 없어 기존 저장 데이터(${baseTop.analyzedCount}개사) 기준으로 TOP 5를 재정리했습니다.`
       );
-    } else if (top5Items.length === 0) {
+    } else if (baseTop.items.length === 0) {
       showToast(
         lastError || '확인된 메인 원재료가 없습니다. 상단 [동기화 · AI키 설정]을 확인해 주세요.'
       );
     } else {
       showToast(
-        `${total}개사 1·2번 분석 완료! (오늘 AI 호출 ${usageAfter.count}/${DAILY_AI_CALL_LIMIT}회${
+        `${newlyCount}개사 1·2번 분석 완료! (오늘 AI 호출 ${usageAfter.count}/${DAILY_AI_CALL_LIMIT}회${
           hasMoreUnsearched ? ' · 남은 업체는 [신규 업체만 서치]로 이어서 실행 가능' : ''
         })`
       );
@@ -1292,36 +1335,65 @@ export default function App() {
     if (!newPartnerForm.companyName || !newPartnerForm.mainProduct || !newPartnerForm.unitPrice) {
       return;
     }
-    const tagKeyword = newPartnerForm.companyName.trim().replace(/\s+/g, '');
+    const combinedQuery = buildRegionCompanyQuery(
+      newPartnerForm.companyName,
+      newPartnerForm.address
+    );
+    const tagKeyword = combinedQuery.replace(/\s+/g, '');
+    const schedule = getKstScheduleInfo();
+
     const newItem = {
       id: `P-${Date.now()}`,
-      companyName: newPartnerForm.companyName,
+      companyName: newPartnerForm.companyName.trim(),
       snsPlatform: 'Instagram',
       snsHandle: `#${tagKeyword}`,
       instagramUrl: `https://www.instagram.com/explore/tags/${encodeURIComponent(tagKeyword)}/`,
       blogUrl:
         newPartnerForm.blogUrl.trim() ||
-        `https://search.naver.com/search.naver?where=blog&query=${encodeURIComponent(newPartnerForm.companyName)}`,
+        `https://search.naver.com/search.naver?query=${encodeURIComponent(combinedQuery)}`,
       category: newPartnerForm.category,
-      mainProduct: newPartnerForm.mainProduct,
-      searchedMenus: [newPartnerForm.mainProduct],
+      mainProduct: newPartnerForm.mainProduct.trim(),
+      topReviewMenu: '',
+      searchedMenus: newPartnerForm.mainProduct.trim()
+        ? [newPartnerForm.mainProduct.trim()]
+        : [],
+      extractedIngredients: [],
+      topIngredientSearched: false,
       aiSummary: '',
       isSearched: false,
       unitPrice: Number(newPartnerForm.unitPrice),
       unitLabel: newPartnerForm.unitLabel,
       totalVolume: Number(newPartnerForm.totalVolume) || 100,
       volumeUnit: newPartnerForm.volumeUnit,
-      manager: newPartnerForm.manager || '담당자 미지정',
-      ceoName: newPartnerForm.manager || '대표',
-      phone: newPartnerForm.phone || '010-0000-0000',
-      address: newPartnerForm.address || '직접 등록 거래처',
+      manager: newPartnerForm.manager.trim() || '담당자 미지정',
+      ceoName: newPartnerForm.manager.trim() || '대표',
+      phone: newPartnerForm.phone.trim() || '-',
+      address: newPartnerForm.address.trim() || '직접 등록 거래처',
       status: newPartnerForm.status,
-      lastOrder: '2026-11-20',
+      lastOrder: schedule.todayStr,
     };
 
     const nextPartners = [newItem, ...partners];
     setPartners(nextPartners);
+    setCurrentPage(1);
     persistDashboardState({ partners: nextPartners });
+
+    setNewPartnerForm({
+      companyName: '',
+      snsPlatform: 'Instagram',
+      snsHandle: '',
+      blogUrl: '',
+      category: '고등어',
+      mainProduct: '',
+      unitPrice: '',
+      unitLabel: '원/상자',
+      totalVolume: '',
+      volumeUnit: '상자',
+      manager: '',
+      phone: '',
+      address: '',
+      status: '활발',
+    });
     setActiveModal(null);
     showToast(`신규 거래업체 '${newItem.companyName}'이(가) 등록되었습니다.`);
   };
@@ -1771,6 +1843,7 @@ export default function App() {
             availableRegions={availableRegions}
             categoryFilter={categoryFilter}
             setCategoryFilter={setCategoryFilter}
+            speciesData={safeSpeciesData}
             speciesKeys={Object.keys(safeSpeciesData)}
             currentPage={currentPage}
             setCurrentPage={setCurrentPage}
@@ -1781,9 +1854,11 @@ export default function App() {
             selectedPartnerDetail={selectedPartnerDetail}
             setSelectedPartnerDetail={setSelectedPartnerDetail}
             onClearAllPartners={handleClearAllPartners}
+            onDeletePartner={handleDeletePartner}
             onBatchSearchCurrentPage={handleBatchSearchCurrentPage}
             onSearchSinglePartnerMenu={handleSearchSinglePartnerMenu}
             onOpenExcelModal={() => setActiveModal('excel')}
+            onOpenAddPartnerModal={() => setActiveModal('partner')}
           />
         </section>
       </main>
