@@ -203,10 +203,11 @@ export async function parseXlsxNatively(arrayBuffer) {
 export function inferPartnerMetadata(companyName = '', address = '', idx = 0) {
   const combined = `${companyName} ${address}`;
   let category = '고등어';
-  const mainProduct = '네이버 메뉴 서칭 대기';
+  const mainProduct = '';
   let unitPrice = 38500;
   let unitLabel = '원/상자';
   let volumeUnit = '상자';
+  // ... 이하 동일
 
   if (combined.includes('삼치') || combined.includes('여수')) {
     category = '삼치';

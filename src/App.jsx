@@ -1063,7 +1063,7 @@ export default function App() {
             ...item,
             topReviewMenu: top5StarMenu,
             searchedMenus: result.menus,
-            mainProduct: hasFoundMenus ? result.menus.join(' · ') : item.mainProduct,
+            mainProduct: hasFoundMenus ? result.menus.join(' · ') : '',
             snsPlatform: 'Instagram',
             snsHandle: result.instagramHandle,
             instagramUrl: result.instagramUrl,

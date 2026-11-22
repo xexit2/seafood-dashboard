@@ -745,16 +745,16 @@ export function buildPartnersAnalysisSnapshotText(partners, meta = {}) {
     const ingList =
       Array.isArray(p.extractedIngredients) && p.extractedIngredients.length > 0
         ? p.extractedIngredients.join(', ')
-        : '미확인';
+        : '';
 
     const menuCandidates = [];
-    if (p.topReviewMenu) menuCandidates.push(`5점리뷰1위: ${p.topReviewMenu}`);
+    if (p.topReviewMenu) {
+      menuCandidates.push(`5점리뷰1위: ${p.topReviewMenu}`);
+    }
     if (Array.isArray(p.searchedMenus) && p.searchedMenus.length > 0) {
       menuCandidates.push(p.searchedMenus.join(', '));
-    } else if (p.mainProduct) {
-      menuCandidates.push(p.mainProduct);
     }
-    const menuText = menuCandidates.length > 0 ? menuCandidates.join(' / ') : '미확인';
+    const menuText = menuCandidates.length > 0 ? menuCandidates.join(' / ') : '';
     const updatedStamp = p.lastAnalyzedAt ? ` (갱신시각: ${p.lastAnalyzedAt})` : '';
 
     lines.push(`${idx + 1}. ${p.companyName} | ${p.address || '주소 미기재'}${updatedStamp}`);
