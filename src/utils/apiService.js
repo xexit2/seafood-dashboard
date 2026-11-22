@@ -143,17 +143,19 @@ export async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
     `${combinedQuery} 메뉴`
   )}`;
 
+  const recent6mRange = getSixMonthsAgoKstRangeText();
   const userQuery = `대한민국 업체 "${combinedQuery}" (상세주소: ${partner.address})의 네이버 플레이스(map.naver.com) 메뉴판 및 방문자 별점 5점(최고평점/호평) 리뷰와 네이버 블로그 후기를 분석해줘.
 중요 규칙:
-1. 네이버 플레이스 방문자 리뷰(특히 5점 만점 호평 리뷰 및 추천 리뷰)에서 고객들이 가장 많이 언급하고 극찬한 대표 메뉴 1순위를 "topReviewMenu"에 넣어줘.
-2. 네이버 플레이스 메뉴판이나 블로그 리뷰에서 실제로 확인되는 전체 대표 메뉴 목록을 "menus" 배열에 넣어줘.
-3. 추측하거나 지어내지 말고, 검색 결과에서 확인되지 않으면 "topReviewMenu"는 빈 문자열 "", "menus"는 빈 배열 [] 로 반환해줘.
-4. 반드시 순수 JSON 객체만 반환해줘:
+1. 리뷰 및 후기 분석 기간은 반드시 [${recent6mRange}] 내 작성된 최신 리뷰만 대상으로 해줘. 6개월이 지난 오래된 리뷰는 제외해줘.
+2. 네이버 플레이스 방문자 리뷰(특히 최근 6개월 내 5점 만점 호평 리뷰 및 추천 리뷰)에서 고객들이 가장 많이 언급하고 극찬한 대표 메뉴 1순위를 "topReviewMenu"에 넣어줘.
+3. 네이버 플레이스 메뉴판이나 최근 6개월 내 블로그 리뷰에서 실제로 확인되는 전체 대표 메뉴 목록을 "menus" 배열에 넣어줘.
+4. 추측하거나 지어내지 말고, 최근 6개월 내 검색 결과에서 확인되지 않으면 "topReviewMenu"는 빈 문자열 "", "menus"는 빈 배열 [] 로 반환해줘.
+5. 반드시 순수 JSON 객체만 반환해줘:
 {
-  "topReviewMenu": "네이버 5점 리뷰 최다 언급 1위 메뉴명",
-  "menus": ["5점 리뷰 최다 언급 메뉴1", "메뉴2", "메뉴3"],
+  "topReviewMenu": "최근 6개월 내 네이버 5점 리뷰 최다 언급 1위 메뉴명",
+  "menus": ["메뉴1", "메뉴2", "메뉴3"],
   "blogUrl": "확인된 네이버 플레이스 또는 블로그 URL (없으면 빈 문자열)",
-  "summary": "네이버 5점 리뷰에서 가장 많이 언급된 메뉴와 고객 평가 특징 1~2문장 요약"
+  "summary": "최근 6개월 내 네이버 리뷰에서 가장 많이 언급된 메뉴와 고객 평가 특징 1~2문장 요약"
 }`;
 
   const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
@@ -194,11 +196,26 @@ export async function searchPartnerWebAndMenus(partner, geminiApiKey = '') {
   };
 }
 
+// 오늘(KST) 기준 6개월 전 날짜 범위 안내 문자열 생성
+function getSixMonthsAgoKstRangeText() {
+  const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+  const sixMonthsAgo = new Date(nowKst.getTime());
+  sixMonthsAgo.setUTCMonth(sixMonthsAgo.getUTCMonth() - 6);
+
+  const fmt = (d) =>
+    `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(
+      d.getUTCDate()
+    ).padStart(2, '0')}`;
+
+  return `${fmt(sixMonthsAgo)} ~ ${fmt(nowKst)} (최근 6개월 이내)`;
+}
+
 export async function searchTopIngredientsBatch(partnersBatch, geminiApiKey = '') {
   if (!Array.isArray(partnersBatch) || partnersBatch.length === 0) {
     return { items: [], error: '', isRateLimit: false };
   }
 
+  const recent6mRange = getSixMonthsAgoKstRangeText();
   const listText = partnersBatch
     .map((p, idx) => {
       const q = buildRegionCompanyQuery(p.companyName, p.address);
@@ -206,16 +223,19 @@ export async function searchTopIngredientsBatch(partnersBatch, geminiApiKey = ''
     })
     .join('\n');
 
-  const userQuery = `다음 대한민국 식당/수산 업체들의 상호명, 업종 특징 및 알려진 대표 메뉴를 바탕으로, 각 업체의 [1번: 주력 메인 원재료]와 [2번: 대표·인기 요리 메뉴]를 함께 추출해줘.
+  const userQuery = `다음 대한민국 식당/수산 업체들의 네이버 플레이스 메뉴판과 방문자 리뷰 댓글, 네이버 블로그 후기를 웹 검색해서 각 업체의 [1번: 주력 메인 원재료]와 [2번: 대표·인기 요리 메뉴]를 추출해줘.
+
+[검색 기준 기간]
+- 반드시 [${recent6mRange}] 이내에 작성된 최신 리뷰·후기와 현재 메뉴판만 기준으로 추출해줘. 6개월 이전의 오래된 과거 리뷰는 배제해줘.
 
 [업체 목록]
 ${listText}
 
 [필수 규칙]
-1. "ingredients" (1번 정보): 완성된 요리명이 아닌 핵심 순수 "메인 원재료명"만 적어줘. (예: "삼치", "금태", "고등어", "전갱이", "대방어", "갈치", "참돔", "광어", "우럭", "오징어", "문어", "전복", "꽃게", "새우", "한우", "돼지고기", "장어", "아귀", "복어" 등)
-2. "topMenu" (2번 정보 1순위): 해당 업체의 가장 대표적인 시그니처 요리·메뉴명 1개 (예: "숙성모듬회", "삼치회", "금태구이", "고등어봉초밥", "오마카세" 등).
-3. "menus" (2번 정보 전체): 확인되는 대표 요리·메뉴명 1~3개 배열.
-4. 정보 확인이 어려운 업체는 억지로 추측하지 말고 ingredients: [], topMenu: "", menus: [] 로 반환해줘.
+1. "ingredients" (1번 정보): 완성된 요리명이 아니라, 최근 6개월 내 방문자 리뷰와 메뉴에서 확인되는 핵심 순수 "메인 원재료명"만 적어줘. (예: "삼치", "금태", "고등어", "전갱이", "대방어", "갈치", "참돔", "광어", "우럭", "오징어", "문어", "전복", "꽃게", "새우", "한우", "돼지고기", "장어", "아귀", "복어" 등)
+2. "topMenu" (2번 정보 1순위): 최근 6개월 내 네이버 플레이스 리뷰나 메뉴판에서 가장 많이 언급되는 대표 시그니처 메뉴 1개.
+3. "menus" (2번 정보 전체): 확인되는 대표 메뉴·요리명 1~3개 배열.
+4. 최근 6개월 기준 검색 결과에서 메뉴나 리뷰가 확인되지 않는 업체는 억지로 추측하지 말고 ingredients: [], topMenu: "", menus: [] 로 반환해줘.
 5. 설명 문장 없이 반드시 아래 순수 JSON 형식만 출력해줘:
 {
   "results": [
@@ -229,8 +249,7 @@ ${listText}
   ]
 }`;
 
-  // 대량 배치 시 고가의 Google Search 그라운딩 과금 방지를 위해 useSearch = false 유지
-  const res = await callGeminiWithFallback(userQuery, geminiApiKey, false);
+  const res = await callGeminiWithFallback(userQuery, geminiApiKey, true);
   if (!res.ok) {
     return { items: [], error: res.error, isRateLimit: res.isRateLimit };
   }

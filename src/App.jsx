@@ -884,16 +884,41 @@ export default function App() {
     const nextPartners = partners.map((p) => {
       if (Object.prototype.hasOwnProperty.call(newlyFoundMap, p.id)) {
         const found = newlyFoundMap[p.id];
+
+        // 전체 재서칭(isFullRescan)일 때는 빈 결과 보호를 제외하고 최신 6개월 검색 결과로 그대로 갱신
+        if (isFullRescan) {
+          return {
+            ...p,
+            topIngredientSearched: true,
+            extractedIngredients: found.ingredients,
+            topReviewMenu: found.topMenu || '',
+            searchedMenus: found.menus,
+            mainProduct: found.menus.length > 0 ? found.menus.join(' · ') : '',
+            lastAnalyzedAt: schedule.formattedNow,
+          };
+        }
+
+        // 신규 업체 추가 갱신 모드일 때만 기존 유효 데이터 보존
+        const prevIngs = Array.isArray(p.extractedIngredients) ? p.extractedIngredients : [];
+        const prevMenus = Array.isArray(p.searchedMenus) ? p.searchedMenus : [];
+        const mergedIngs = found.ingredients.length > 0 ? found.ingredients : prevIngs;
+        const mergedMenus = found.menus.length > 0 ? found.menus : prevMenus;
+        const mergedTopMenu = found.topMenu || p.topReviewMenu || mergedMenus[0] || '';
+
         return {
           ...p,
           topIngredientSearched: true,
-          extractedIngredients: found.ingredients,
-          topReviewMenu: found.topMenu || p.topReviewMenu || '',
-          searchedMenus:
-            found.menus.length > 0 ? found.menus : p.searchedMenus || [],
-          mainProduct:
-            found.menus.length > 0 ? found.menus.join(' · ') : p.mainProduct || '',
+          extractedIngredients: mergedIngs,
+          topReviewMenu: mergedTopMenu,
+          searchedMenus: mergedMenus,
+          mainProduct: mergedMenus.length > 0 ? mergedMenus.join(' · ') : p.mainProduct || '',
           lastAnalyzedAt: schedule.formattedNow,
+        };
+      }
+      if (isFullRescan) {
+        return {
+          ...p,
+          topIngredientSearched: false,
         };
       }
       return p;
