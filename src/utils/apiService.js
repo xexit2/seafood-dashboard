@@ -844,7 +844,7 @@ export async function uploadSnapshotToGoogleDrive(
 }
 
 export const PDF_MAX_STORAGE_BYTES = 500 * 1024 * 1024; // 총 500MB 한도
-export const PDF_SINGLE_FILE_MAX_BYTES = 35 * 1024 * 1024; // 1회 웹훅 전송 안정 한도 (35MB)
+export const PDF_SINGLE_FILE_MAX_BYTES = 500 * 1024 * 1024; // 단일 파일도 500MB 한도까지 허용
 export const DRIVE_PDF_FOLDER_NAME = '수산물_대시보드_PDF자료실';
 
 // 구글 드라이브 전용 PDF 폴더 목록 및 500MB 용량 현황 조회
