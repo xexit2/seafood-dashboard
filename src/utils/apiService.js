@@ -842,3 +842,142 @@ export async function uploadSnapshotToGoogleDrive(
     return { ok: false, error: err?.message || '구글 드라이브 전송 실패' };
   }
 }
+
+export const PDF_MAX_STORAGE_BYTES = 500 * 1024 * 1024; // 총 500MB 한도
+export const PDF_SINGLE_FILE_MAX_BYTES = 35 * 1024 * 1024; // 1회 웹훅 전송 안정 한도 (35MB)
+export const DRIVE_PDF_FOLDER_NAME = '수산물_대시보드_PDF자료실';
+
+// 구글 드라이브 전용 PDF 폴더 목록 및 500MB 용량 현황 조회
+export async function fetchDrivePdfList(webhookUrl, folderName = DRIVE_PDF_FOLDER_NAME) {
+  const cleanUrl = String(webhookUrl || '').trim();
+  if (!cleanUrl) {
+    return { ok: false, files: [], totalBytes: 0, maxBytes: PDF_MAX_STORAGE_BYTES, error: '구글 드라이브 웹훅 URL이 설정되지 않았습니다.' };
+  }
+
+  try {
+    const sep = cleanUrl.includes('?') ? '&' : '?';
+    const url = `${cleanUrl}${sep}action=list_pdfs&folderName=${encodeURIComponent(folderName)}&_t=${Date.now()}`;
+    const res = await fetch(url, { method: 'GET' });
+    const data = await res.json();
+    if (!data.ok) {
+      return { ok: false, files: [], totalBytes: 0, maxBytes: PDF_MAX_STORAGE_BYTES, error: data.error || '목록 조회 실패' };
+    }
+    return {
+      ok: true,
+      files: Array.isArray(data.files) ? data.files : [],
+      totalBytes: Number(data.totalBytes || 0),
+      maxBytes: Number(data.maxBytes || PDF_MAX_STORAGE_BYTES),
+      error: '',
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      files: [],
+      totalBytes: 0,
+      maxBytes: PDF_MAX_STORAGE_BYTES,
+      error: err?.message || '구글 드라이브 PDF 목록 연결 오류 (Apps Script 새 버전 배포 여부를 확인하세요)',
+    };
+  }
+}
+
+// PDF 파일을 구글 드라이브 전용 폴더로 업로드 (총 500MB 한도 검사)
+export async function uploadPdfToGoogleDrive(
+  webhookUrl,
+  file,
+  currentTotalBytes = 0,
+  folderName = DRIVE_PDF_FOLDER_NAME
+) {
+  const cleanUrl = String(webhookUrl || '').trim();
+  if (!cleanUrl) {
+    return { ok: false, error: '구글 드라이브 웹훅 URL이 설정되지 않았습니다.' };
+  }
+  if (!file) {
+    return { ok: false, error: '선택된 PDF 파일이 없습니다.' };
+  }
+  if (file.size > PDF_SINGLE_FILE_MAX_BYTES) {
+    return {
+      ok: false,
+      error: `단일 PDF 파일은 35MB 이하만 업로드할 수 있습니다. (현재 파일: ${(file.size / (1024 * 1024)).toFixed(1)}MB)`,
+    };
+  }
+  if (currentTotalBytes + file.size > PDF_MAX_STORAGE_BYTES) {
+    return {
+      ok: false,
+      error: `최대 저장 한도(500MB)를 초과합니다. 기존 PDF를 일부 삭제한 뒤 다시 올려주세요.`,
+    };
+  }
+
+  try {
+    const base64 = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const commaIdx = result.indexOf(',');
+        resolve(commaIdx !== -1 ? result.slice(commaIdx + 1) : result);
+      };
+      reader.onerror = () => reject(new Error('PDF 파일을 읽는 중 오류가 발생했습니다.'));
+      reader.readAsDataURL(file);
+    });
+
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'upload_pdf',
+        folderName,
+        fileName: file.name,
+        base64,
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      return { ok: false, error: data.error || '구글 드라이브 업로드 실패' };
+    }
+    return {
+      ok: true,
+      files: Array.isArray(data.files) ? data.files : [],
+      totalBytes: Number(data.totalBytes || 0),
+      maxBytes: Number(data.maxBytes || PDF_MAX_STORAGE_BYTES),
+      error: '',
+    };
+  } catch (err) {
+    return { ok: false, error: err?.message || '구글 드라이브 전송 중 네트워크 오류' };
+  }
+}
+
+// 구글 드라이브 전용 폴더 내 특정 PDF 삭제
+export async function deleteDrivePdfFile(
+  webhookUrl,
+  fileId,
+  folderName = DRIVE_PDF_FOLDER_NAME
+) {
+  const cleanUrl = String(webhookUrl || '').trim();
+  if (!cleanUrl || !fileId) {
+    return { ok: false, error: '삭제 대상 정보가 올바르지 않습니다.' };
+  }
+
+  try {
+    const res = await fetch(cleanUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'delete_pdf',
+        folderName,
+        fileId,
+      }),
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      return { ok: false, error: data.error || '삭제 실패' };
+    }
+    return {
+      ok: true,
+      files: Array.isArray(data.files) ? data.files : [],
+      totalBytes: Number(data.totalBytes || 0),
+      maxBytes: Number(data.maxBytes || PDF_MAX_STORAGE_BYTES),
+      error: '',
+    };
+  } catch (err) {
+    return { ok: false, error: err?.message || '구글 드라이브 삭제 통신 오류' };
+  }
+}
