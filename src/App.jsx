@@ -1077,17 +1077,23 @@ export default function App() {
     const q = String(searchQuery || '').toLowerCase();
     return partners.filter((p) => {
       if (!p) return false;
+      const ingredientsText = Array.isArray(p.extractedIngredients)
+        ? p.extractedIngredients.join(' ').toLowerCase()
+        : '';
       const matchesSearch =
         String(p.companyName || '').toLowerCase().includes(q) ||
         String(p.mainProduct || '').toLowerCase().includes(q) ||
         String(p.topReviewMenu || '').toLowerCase().includes(q) ||
         String(p.manager || '').toLowerCase().includes(q) ||
         String(p.phone || '').includes(q) ||
-        String(p.address || '').toLowerCase().includes(q);
+        String(p.address || '').toLowerCase().includes(q) ||
+        ingredientsText.includes(q);
       const matchesCategory =
         categoryFilter === '전체' ||
         p.category === categoryFilter ||
-        p.topReviewMenu === categoryFilter;
+        p.topReviewMenu === categoryFilter ||
+        (Array.isArray(p.extractedIngredients) &&
+          p.extractedIngredients.includes(categoryFilter));
       const matchesRegion =
         regionFilter === '전체' || String(p.address || '').startsWith(regionFilter);
       return matchesSearch && matchesCategory && matchesRegion;
