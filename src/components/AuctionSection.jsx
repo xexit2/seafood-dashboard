@@ -288,7 +288,7 @@ export default function AuctionSection({
             </div>
           </div>
 
-          <div className="h-64 w-full bg-white rounded-xl border border-slate-100 p-3 flex flex-col justify-between">
+          <div className="h-52 sm:h-64 w-full bg-white rounded-xl border border-slate-100 p-2 sm:p-3 flex flex-col justify-between">
             {(() => {
               const pts = Array.isArray(chartData) ? chartData : [];
               const prices = pts.map((d) => Number(d?.price) || 0);
@@ -332,6 +332,7 @@ export default function AuctionSection({
               return (
                 <svg
                   viewBox={`0 0 ${w} ${h}`}
+                  preserveAspectRatio="xMidYMid meet"
                   className="w-full h-full overflow-visible"
                   role="img"
                   aria-label={`${currentSpecies.name} 가격 추이 차트`}

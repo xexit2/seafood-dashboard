@@ -189,7 +189,7 @@ export default function PurchaseInsightSection({
       )}
 
       {/* 어종별 매입 전략 카드 그리드 */}
-      <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
         {insights.map((item) => {
           const isBuyStrong = item.signalType === 'buy_strong';
           const isPreSecure = item.signalType === 'pre_secure';

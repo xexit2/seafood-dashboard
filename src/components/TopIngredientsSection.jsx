@@ -171,8 +171,8 @@ export default function TopIngredientsSection({
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-center">
-        <div className="lg:col-span-5 min-h-[190px] bg-slate-50/70 rounded-xl border border-slate-100 p-4 flex flex-col justify-center">
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 sm:gap-6 items-center">
+        <div className="md:col-span-5 min-h-[190px] bg-slate-50/70 rounded-xl border border-slate-100 p-4 flex flex-col justify-center">
           {items.length === 0 ? (
             <div className="text-center space-y-1.5 py-4">
               <Sparkles className="w-6 h-6 text-sky-500 mx-auto" />
@@ -227,7 +227,7 @@ export default function TopIngredientsSection({
           )}
         </div>
 
-        <div className="lg:col-span-7 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+        <div className="md:col-span-7 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
           {items.length === 0 ? (
             <div className="sm:col-span-2 md:col-span-3 p-6 rounded-xl border border-dashed border-slate-200 text-center text-xs text-slate-400">
               서치 완료 시 상위 5개 메인 원재료와 취급 거래처 수가 이곳에 카드 형태로 정리됩니다.

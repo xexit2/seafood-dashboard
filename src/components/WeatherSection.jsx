@@ -61,7 +61,7 @@ export default function WeatherSection({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12">
-        <div className="lg:col-span-7 relative bg-slate-900 min-h-[300px] sm:min-h-[340px] border-b lg:border-b-0 lg:border-r border-slate-200">
+        <div className="lg:col-span-7 relative bg-slate-900 min-h-[240px] sm:min-h-[300px] lg:min-h-[340px] border-b lg:border-b-0 lg:border-r border-slate-200">
           <div className="absolute top-3 left-3 z-10 flex items-center gap-1 bg-slate-900/85 backdrop-blur px-2 py-1.5 rounded-xl border border-slate-700 shadow-md">
             <Layers className="w-3.5 h-3.5 text-sky-400 mr-1" />
             {[

@@ -1645,39 +1645,39 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap justify-end">
+          <div className="flex items-center gap-1 sm:gap-2 flex-wrap justify-end">
             <button
               onClick={handleManualDownloadSnapshot}
               title="누적된 거래업체 1번(주력 원재료)·2번(메뉴) 분석 결과를 내 컴퓨터 TXT 파일로 즉시 저장합니다."
-              className="inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold rounded-lg border text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-2 text-xs font-semibold rounded-lg border text-indigo-700 bg-indigo-50 border-indigo-200 hover:bg-indigo-100 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5 text-indigo-600" />
-              <span>분석 TXT 저장</span>
+              <span className="hidden sm:inline">분석 TXT 저장</span>
             </button>
             <button
               onClick={() => setActiveModal('cloud')}
-              className="inline-flex items-center gap-1.5 px-2.5 py-2 text-xs font-semibold rounded-lg border text-sky-700 bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2 sm:px-2.5 py-2 text-xs font-semibold rounded-lg border text-sky-700 bg-sky-50 border-sky-200 hover:bg-sky-100 cursor-pointer"
             >
               <Database className="w-3.5 h-3.5 text-sky-600" />
               <span className="hidden md:inline">동기화 · API키 설정</span>
             </button>
             <button
               onClick={() => setActiveModal('excel')}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg cursor-pointer"
             >
               <FileSpreadsheet className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">엑셀 업로드</span>
             </button>
             <button
               onClick={() => setActiveModal('auction')}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden md:inline">위판 시세</span>
             </button>
             <button
               onClick={() => setActiveModal('partner')}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2 sm:px-3 py-2 text-xs font-semibold text-white bg-sky-600 hover:bg-sky-700 rounded-lg shadow-xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">업체 등록</span>

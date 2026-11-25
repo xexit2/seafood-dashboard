@@ -136,17 +136,17 @@ export default function PartnerTableSection({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-            <select
-              value={regionFilter}
-              onChange={(e) => {
-                setRegionFilter(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="pl-8 pr-6 py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
-            >
+            <div className="flex items-center gap-2 sm:gap-2">
+              <div className="relative">
+                <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                <select
+                  value={regionFilter}
+                  onChange={(e) => {
+                    setRegionFilter(e.target.value);
+                    setCurrentPage(1);
+                  }}
+                  className="pl-8 pr-6 py-2.5 sm:py-2 text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-sky-500"
+                >
               {availableRegions.map((reg) => (
                 <option key={reg} value={reg}>
                   {reg === '전체' ? '전체 지역' : reg}
@@ -351,8 +351,8 @@ export default function PartnerTableSection({
                       </div>
                     </td>
 
-                    <td className="py-3 px-3 align-top max-w-[210px]">
-                      <div className="text-slate-700 leading-snug">{partner.address}</div>
+                    <td className="py-3 px-3 align-top max-w-[160px] sm:max-w-[210px]">
+                      <div className="text-slate-700 leading-snug line-clamp-2">{partner.address}</div>
                       {partner.topReviewMenu ? (
                         <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold">
                           ★ 5점 리뷰 최다: {partner.topReviewMenu}
@@ -364,7 +364,7 @@ export default function PartnerTableSection({
                       )}
                     </td>
 
-                    <td className="py-3 px-3 align-top max-w-[240px]">
+                    <td className="py-3 px-3 align-top max-w-[180px] sm:max-w-[240px]">
                       {partner.isSearched || partner.searchedMenus?.length > 0 ? (
                         partner.searchedMenus?.length > 0 ? (
                           <div className="space-y-1">
