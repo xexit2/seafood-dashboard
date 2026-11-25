@@ -346,16 +346,16 @@ export default function PartnerTableSection({
 
                 return (
                   <tr key={partner.id} className="hover:bg-slate-50/90 transition-colors">
-                    <td className="py-3 px-3.5 align-top">
-                      <div className="font-bold text-slate-900 text-sm">{partner.companyName}</div>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-1">
-                        <span>{partner.manager}</span>
+                    <td className="py-3 px-2.5 sm:px-3.5 align-top max-w-[130px] sm:max-w-none">
+                      <div className="font-bold text-slate-900 text-xs sm:text-sm line-clamp-2">{partner.companyName}</div>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-slate-500 mt-1">
+                        <span className="truncate max-w-[80px] sm:max-w-none">{partner.manager}</span>
                         {partner.phone && (
                           <a
                             href={`tel:${partner.phone}`}
-                            className="inline-flex items-center gap-0.5 text-sky-700 font-medium hover:underline"
+                            className="inline-flex items-center gap-0.5 text-sky-700 font-medium hover:underline whitespace-nowrap"
                           >
-                            <Phone className="w-3 h-3" />
+                            <Phone className="w-3 h-3 shrink-0" />
                             {partner.phone}
                           </a>
                         )}
@@ -459,8 +459,8 @@ export default function PartnerTableSection({
                         )
                       ) : (
                         <div>
-                          <div className="font-medium text-slate-500">{partner.mainProduct}</div>
-                          <span className="text-[11px] text-slate-400">
+                          <div className="font-medium text-slate-500 line-clamp-2">{partner.mainProduct}</div>
+                          <span className="hidden sm:inline text-[11px] text-slate-400">
                             우측 &apos;메뉴 서칭&apos; 클릭 시 네이버 5점 리뷰 인기 메뉴 정리
                           </span>
                         </div>
@@ -510,12 +510,12 @@ export default function PartnerTableSection({
                       </div>
                     </td>
 
-                    <td className="py-3 px-3.5 align-top text-center">
-                      <div className="inline-flex items-center gap-1.5">
+                    <td className="py-3 px-2.5 sm:px-3.5 align-top text-center">
+                      <div className="inline-flex flex-col sm:flex-row items-center gap-1.5">
                         <button
                           onClick={() => onSearchSinglePartnerMenu(partner)}
                           disabled={isSearchingThis}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer ${
+                          className={`inline-flex items-center justify-center gap-1 px-2 sm:px-2.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
                             partner.isSearched
                               ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
                               : 'bg-sky-600 text-white hover:bg-sky-700 shadow-2xs'
@@ -524,17 +524,17 @@ export default function PartnerTableSection({
                           {isSearchingThis ? (
                             <>
                               <Loader2 className="w-3 h-3 animate-spin" />
-                              서칭중
+                              <span className="hidden sm:inline">서칭중</span>
                             </>
                           ) : partner.isSearched ? (
                             <>
                               <Check className="w-3 h-3" />
-                              재서칭
+                              <span className="hidden sm:inline">재서칭</span>
                             </>
                           ) : (
                             <>
                               <Sparkles className="w-3 h-3" />
-                              메뉴 서칭
+                              <span className="hidden sm:inline">메뉴 서칭</span>
                             </>
                           )}
                         </button>
@@ -542,10 +542,10 @@ export default function PartnerTableSection({
                         <button
                           onClick={() => onDeletePartner(partner)}
                           title={`${partner.companyName} 삭제`}
-                          className="inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer"
+                          className="inline-flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[11px] font-semibold text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer whitespace-nowrap"
                         >
                           <X className="w-3 h-3" />
-                          삭제
+                          <span className="hidden sm:inline">삭제</span>
                         </button>
                       </div>
                     </td>
