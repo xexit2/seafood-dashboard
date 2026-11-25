@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   RotateCcw,
   Loader2,
@@ -50,6 +50,17 @@ export default function PartnerTableSection({
     Array.isArray(speciesKeys) && speciesKeys.length > 0
       ? speciesKeys
       : Object.keys(speciesData || {});
+
+  const [expandedAddresses, setExpandedAddresses] = useState({});
+  const [expandedMenus, setExpandedMenus] = useState({});
+
+  const toggleAddress = (id) => {
+    setExpandedAddresses((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const toggleMenus = (id) => {
+    setExpandedMenus((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   return (
     <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-5 sm:p-6">
@@ -268,11 +279,11 @@ export default function PartnerTableSection({
         <table className="w-full text-left border-collapse">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500">
-              <th className="py-3 px-3.5">업체명 / 대표·연락처</th>
-              <th className="py-3 px-3">소재지 주소</th>
-              <th className="py-3 px-3">판매 메뉴 (AI 정리)</th>
-              <th className="py-3 px-3">인스타 · 블로그 · 검색 바로가기</th>
-              <th className="py-3 px-3.5 text-center">메뉴 서칭 · 삭제</th>
+              <th className="py-3 px-3 sm:px-3.5">업체명<span className="hidden sm:inline"> / 대표·연락처</span></th>
+              <th className="py-3 px-2.5 sm:px-3">소재지<span className="hidden sm:inline"> 주소</span></th>
+              <th className="py-3 px-2.5 sm:px-3">판매 메뉴<span className="hidden sm:inline"> (AI 정리)</span></th>
+              <th className="py-3 px-2.5 sm:px-3">바로가기</th>
+              <th className="py-3 px-2.5 sm:px-3.5 text-center">서칭·삭제</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100 text-xs">
@@ -351,39 +362,82 @@ export default function PartnerTableSection({
                       </div>
                     </td>
 
-                    <td className="py-3 px-3 align-top max-w-[160px] sm:max-w-[210px]">
-                      <div className="text-slate-700 leading-snug line-clamp-2">{partner.address}</div>
+                    <td className="py-3 px-2.5 sm:px-3 align-top max-w-[120px] sm:max-w-[210px]">
+                      {(() => {
+                        const isAddrExpanded = Boolean(expandedAddresses[partner.id]);
+                        const firstRegion = String(partner.address || '').trim().split(' ')[0] || '-';
+                        return (
+                          <div>
+                            <div className="hidden sm:block text-slate-700 leading-snug line-clamp-2">
+                              {partner.address}
+                            </div>
+                            <div className="sm:hidden">
+                              <div className="text-slate-700 leading-snug font-medium">
+                                {isAddrExpanded ? partner.address : firstRegion}
+                              </div>
+                              {partner.address && partner.address.trim() !== firstRegion && (
+                                <button
+                                  type="button"
+                                  onClick={() => toggleAddress(partner.id)}
+                                  className="text-[10px] font-semibold text-sky-600 hover:text-sky-700 mt-0.5 cursor-pointer"
+                                >
+                                  {isAddrExpanded ? '접기 ▲' : '전체주소 ▼'}
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                       {partner.topReviewMenu ? (
-                        <span className="inline-flex items-center gap-1 mt-1.5 px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold">
-                          ★ 5점 리뷰 최다: {partner.topReviewMenu}
+                        <span className="inline-flex items-center gap-1 mt-1.5 px-1.5 sm:px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-bold">
+                          ★ <span className="hidden sm:inline">5점 리뷰 최다: </span>{partner.topReviewMenu}
                         </span>
                       ) : (
-                        <span className="inline-block mt-1 px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium">
-                          5점 리뷰 메뉴: 서칭 전
+                        <span className="inline-block mt-1 px-1.5 sm:px-2 py-0.5 rounded bg-slate-100 text-slate-500 text-[10px] font-medium">
+                          <span className="hidden sm:inline">5점 리뷰 메뉴: </span>서칭 전
                         </span>
                       )}
                     </td>
 
-                    <td className="py-3 px-3 align-top max-w-[180px] sm:max-w-[240px]">
+                    <td className="py-3 px-2.5 sm:px-3 align-top max-w-[140px] sm:max-w-[240px]">
                       {partner.isSearched || partner.searchedMenus?.length > 0 ? (
                         partner.searchedMenus?.length > 0 ? (
                           <div className="space-y-1">
-                            <div className="flex flex-wrap gap-1">
-                              {partner.searchedMenus.map((m, idx) => (
-                                <span
-                                  key={idx}
-                                  className={`inline-block px-2 py-0.5 rounded-md text-[11px] font-semibold border ${
-                                    idx === 0
-                                      ? 'bg-amber-50 text-amber-800 border-amber-300'
-                                      : 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                                  }`}
-                                >
-                                  {idx === 0 ? `★ ${m}` : m}
-                                </span>
-                              ))}
-                            </div>
+                            {(() => {
+                              const isMenuExpanded = Boolean(expandedMenus[partner.id]);
+                              const allMenus = partner.searchedMenus;
+                              const hasMore = allMenus.length > 3;
+                              const visibleMenus = isMenuExpanded ? allMenus : allMenus.slice(0, 3);
+                              return (
+                                <>
+                                  <div className="flex flex-wrap gap-1">
+                                    {visibleMenus.map((m, idx) => (
+                                      <span
+                                        key={idx}
+                                        className={`inline-block px-1.5 sm:px-2 py-0.5 rounded-md text-[10px] sm:text-[11px] font-semibold border ${
+                                          idx === 0
+                                            ? 'bg-amber-50 text-amber-800 border-amber-300'
+                                            : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                        }`}
+                                      >
+                                        {idx === 0 ? `★ ${m}` : m}
+                                      </span>
+                                    ))}
+                                  </div>
+                                  {hasMore && (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleMenus(partner.id)}
+                                      className="text-[10px] font-semibold text-sky-600 hover:text-sky-700 cursor-pointer"
+                                    >
+                                      {isMenuExpanded ? '접기 ▲' : `+${allMenus.length - 3}개 더보기 ▼`}
+                                    </button>
+                                  )}
+                                </>
+                              );
+                            })()}
                             {partner.aiSummary && (
-                              <p className="text-[11px] text-slate-500 line-clamp-2">
+                              <p className="hidden sm:line-clamp-2 text-[11px] text-slate-500">
                                 {partner.aiSummary}
                               </p>
                             )}
@@ -413,7 +467,7 @@ export default function PartnerTableSection({
                       )}
                     </td>
 
-                    <td className="py-3 px-3 align-top">
+                    <td className="py-3 px-2.5 sm:px-3 align-top">
                       <div className="flex flex-wrap items-center gap-1.5">
                         <a
                           href={instaTagUrl}
@@ -422,33 +476,36 @@ export default function PartnerTableSection({
                           }
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-pink-50 text-pink-700 border border-pink-200 hover:bg-pink-100 transition-colors"
+                          title="인스타그램 검색"
+                          className="inline-flex items-center justify-center gap-1 p-2 sm:px-2 sm:py-1 rounded-md text-[11px] font-semibold bg-pink-50 text-pink-700 border border-pink-200 hover:bg-pink-100 transition-colors"
                         >
-                          <Instagram className="w-3 h-3" />
-                          인스타
+                          <Instagram className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+                          <span className="hidden sm:inline">인스타</span>
                         </a>
 
                         <a
                           href={naverSearchUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                          title="네이버 검색"
+                          className="inline-flex items-center justify-center gap-1 p-2 sm:px-2 sm:py-1 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
                         >
-                          <BookOpen className="w-3 h-3" />
-                          네이버
+                          <BookOpen className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+                          <span className="hidden sm:inline">네이버</span>
                         </a>
 
                         <a
                           href={googleSearchUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                          title="구글 검색"
+                          className="inline-flex items-center justify-center gap-1 p-2 sm:px-2 sm:py-1 rounded-md text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
                         >
-                          <Globe className="w-3 h-3" />
-                          구글
+                          <Globe className="w-3.5 h-3.5 sm:w-3 sm:h-3" />
+                          <span className="hidden sm:inline">구글</span>
                         </a>
                       </div>
-                      <div className="text-[10px] text-slate-400 mt-1">
+                      <div className="hidden sm:block text-[10px] text-slate-400 mt-1">
                         검색어: <strong className="text-slate-600">{combinedQuery}</strong>
                       </div>
                     </td>
